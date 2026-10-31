@@ -166,22 +166,24 @@ export class ShopScreen implements Screen {
         line.soldOut ? "SOLD" : item.price === 0 ? "free" : `$${item.price}`,
         line.soldOut ? C.dim : afford ? C.gold : C.red,
       );
-      const tag =
-        item.kind === "gear"
-          ? `[${GEAR_SLOT_LABEL[item.slot ?? "charm"]}]`
-          : item.takeout
-            ? "[to go]"
-            : item.kind === "tonic"
-              ? "[pocket]"
-              : "";
-      t.text(x + 35, yy, tag, C.dim);
+      // A mark after the name for things you can carry away; the detail below explains it.
+      if (item.takeout || item.kind === "tonic")
+        t.text(x + 4 + Math.min(item.name.length, 23) + 1, yy, "*", C.dim);
       const eff = line.noGain ? "(you've outgrown it)" : line.effect;
-      t.text(x + 44, yy, eff, line.noGain ? C.dim : C.lime, undefined, x + w - 1);
+      t.text(x + 35, yy, eff, line.noGain ? C.dim : C.lime, undefined, x + w - 1);
     });
     const sel = lines[this.cursor];
     if (!sel) return;
     let yy = y0 + lines.length + 1;
-    t.text(x + 2, yy++, sel.item.name, this.shop.color);
+    const tag =
+      sel.item.kind === "gear"
+        ? `  (worn: ${GEAR_SLOT_LABEL[sel.item.slot ?? "charm"]})`
+        : sel.item.takeout
+          ? "  (* can be taken to go: B)"
+          : sel.item.kind === "tonic"
+            ? "  (* goes in your pocket)"
+            : "";
+    t.text(t.text(x + 2, yy, sel.item.name, this.shop.color), yy++, tag, C.gray);
     for (const l of Term.wrap(`${sel.effect}.`, w - 6)) t.text(x + 4, yy++, l, C.lime);
     for (const l of Term.wrap(sel.item.flavor, w - 6)) t.text(x + 4, yy++, l, C.light);
     if (sel.item.kind === "gear" && sel.item.slot) {
@@ -199,15 +201,10 @@ export class ShopScreen implements Screen {
     }
     if (sel.item.kind === "tonic" || sel.item.takeout)
       t.text(x + 4, yy++, `Pockets: ${g.player.pockets.length}/${POCKET_SIZE}`, C.gray);
-    if (sel.item.upTo && sel.item.stats && sel.item.kind !== "gear")
-      t.text(
-        x + 4,
-        yy++,
-        `Only raises stats that are below ${sel.item.upTo}. Better food in later towns goes higher.`,
-        C.dim,
-        undefined,
-        x + w - 1,
-      );
+    if (sel.item.upTo && sel.item.stats && sel.item.kind !== "gear") {
+      const note = `Only raises stats that are below ${sel.item.upTo}. Better food in later towns goes higher.`;
+      for (const l of Term.wrap(note, w - 6)) t.text(x + 4, yy++, l, C.dim);
+    }
   }
 
   private drawTechniques(t: Term, y0: number): void {

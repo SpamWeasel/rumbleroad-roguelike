@@ -25,12 +25,13 @@ const SKYLINE = [
   "  |##|__|#|___|####|___|###|__|###|_|##|____|#####|__|##|__|###|_|###|____|####|__|###|__ ",
 ];
 
-function startGame(app: App, game: Game): void {
+export function startGame(app: App, game: Game): PlayScreen {
   app.game = game;
   const play = new PlayScreen(app);
   app.reset(play);
   void app.save();
   (window as unknown as { __rr?: unknown }).__rr = { app, game, play };
+  return play;
 }
 
 export class TitleScreen implements Screen {

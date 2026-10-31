@@ -15,7 +15,9 @@
     "format": "biome check --write .",
     "test": "vitest run",
     "check": "pnpm typecheck && pnpm lint && pnpm test",
-    "dist": "pnpm build && node scripts/dist.mjs"
+    "dist": "pnpm build && node scripts/dist.mjs",
+    "smoke": "pnpm build && node scripts/smoke.mjs",
+    "balance": "tsx scripts/balance.mts"
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.15",

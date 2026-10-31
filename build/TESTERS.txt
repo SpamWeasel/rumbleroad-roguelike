@@ -1,0 +1,52 @@
+RUMBLE ROW - EARLY TEST BUILD (please read me)
+==============================================
+
+Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
+over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+STARTING THE GAME
+-----------------
+- Zip download: unzip it anywhere (right-click > Extract All), open the folder, and
+  double-click RumbleRow.exe. Nothing is installed.
+- Portable .exe: double-click it. It takes a few seconds to start each time.
+- Installer: run it; it adds Rumble Row to the Start menu and the desktop.
+
+Pick the file for your PC: "x64" for most Windows PCs (Intel or AMD), "arm64" for Windows on
+ARM (Snapdragon / Surface Pro X style laptops). If unsure, use x64 - it runs everywhere.
+
+Windows may say "Windows protected your PC", because the game isn't signed yet. Click
+"More info", then "Run anyway".
+
+
+HOW TO PLAY
+-----------
+Press ? in the game for every control. The basics:
+
+  Q W E / A D / Z X C ... move (diagonals too), or arrow keys / numpad
+  S ..................... wait a turn
+  J / K ................. punch / kick (or just walk into a gang member)
+  1 - 9 ................. special moves you've learned at a gym
+  Space ................. guard
+  G / T ................. pick up / throw crates, trash cans, pipes...
+  I ..................... pockets (snacks, bandages, firecrackers)
+  R ..................... rest      Esc ... menu      F11 ... fullscreen
+
+Walk into a shop door to go in. Food heals you AND permanently raises your stats, but each
+dish only helps up to a point - so try the menus in every new town. Gyms teach special moves.
+
+Knock gang members into walls, into each other, or into the water. Big guys wind up huge
+swings first - the square they're aiming at flashes red. Step away or guard!
+
+
+YOUR SAVES
+----------
+The game saves itself each time you enter a new area, and when you choose Save & Quit from the
+Esc menu. Saves live in %APPDATA%\RumbleRow\Saves. Deleting or moving the game never touches
+them.
+
+
+REPORTING A PROBLEM
+-------------------
+Say what you were doing, what went wrong, and which area you were in (its name is at the top
+left of the map). Also handy: how far you got, how long it took, and where it felt unfair.

@@ -12,7 +12,13 @@ directories:
 files:
   - out/**/*
 asar: true
+# Notes for testers beside RumbleRow.exe (in the zip and the installed folder).
+extraFiles:
+  - from: build/TESTERS.txt
+    to: README.txt
 win:
+  icon: build/icon.ico
+  # The zip's name; the portable exe and installer set their own below.
   artifactName: ${productName}-${version}-${arch}.${ext}
   target:
     - target: zip

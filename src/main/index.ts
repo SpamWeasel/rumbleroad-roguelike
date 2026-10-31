@@ -9,10 +9,15 @@ import {
   ipcMain,
   Menu,
 } from "electron";
-import { IPC } from "../shared/bridge";
+import { IPC, type SmokeReport } from "../shared/bridge";
+
+/** Smoke tests: draw one screen, save a screenshot and a report beside it, then quit. */
+const smokeScreenshot = process.env.RUMBLEROW_SMOKE_SCREENSHOT;
+const smokeScene = process.env.RUMBLEROW_SMOKE_SCENE ?? "title";
 
 // Development runs keep their own saves so testing never touches a player's game.
-if (!app.isPackaged) app.setPath("userData", join(app.getPath("appData"), "RumbleRow Dev"));
+if (process.env.RUMBLEROW_USER_DATA) app.setPath("userData", process.env.RUMBLEROW_USER_DATA);
+else if (!app.isPackaged) app.setPath("userData", join(app.getPath("appData"), "RumbleRow Dev"));
 
 const devServerUrl = app.isPackaged ? undefined : process.env.ELECTRON_RENDERER_URL;
 const rendererFile = join(__dirname, "../renderer/index.html");
@@ -51,6 +56,8 @@ function start(): void {
       contextIsolation: true,
       sandbox: false,
       nodeIntegration: false,
+      backgroundThrottling: false,
+      additionalArguments: smokeScreenshot ? [`--smoke-scene=${smokeScene}`] : [],
     },
   });
   window.once("ready-to-show", () => window.show());
@@ -60,6 +67,20 @@ function start(): void {
   });
   if (devServerUrl) void window.loadURL(devServerUrl);
   else void window.loadFile(rendererFile);
+
+  if (smokeScreenshot) {
+    const timer = setTimeout(() => {
+      console.error("Smoke test timed out.");
+      app.exit(2);
+    }, 30_000);
+    ipcMain.once(IPC.rendererReady, async (_event: IpcMainEvent, report: SmokeReport) => {
+      clearTimeout(timer);
+      const image = await window.webContents.capturePage();
+      await writeFile(smokeScreenshot, image.toPNG());
+      await writeFile(`${smokeScreenshot}.json`, JSON.stringify(report));
+      app.exit(report.ok ? 0 : 1);
+    });
+  }
 }
 
 function assertTrusted(event: IpcMainInvokeEvent | IpcMainEvent): void {

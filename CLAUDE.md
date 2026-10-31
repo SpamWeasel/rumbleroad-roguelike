@@ -35,4 +35,12 @@ Electron setup is copied from Hollowdeep.
 - `pnpm dev:web` runs it in a browser (port 5191); `pnpm dev` runs the desktop window.
 - `pnpm check` = typecheck + Biome (pinned 2.5.15; 2.6.x crashes on this ARM64 PC) + tests.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
-- `pnpm dist` makes Windows zip/portable/installer builds for x64 and ARM64.
+- `pnpm smoke` builds, then launches the title, game and shop screens (silently, throwaway saves)
+  and writes screenshots and reports to `.smoke/`; fails on any script error.
+  `node scripts/smoke.mjs <path\to\RumbleRow.exe>` runs the same check on a packaged build.
+- `pnpm dist` builds into `release/<version>/`, for x64 and ARM64 each: a zip to unpack and run
+  (no install), a single portable exe, and an installer. `scripts/dist.mjs` forces the BCJ 7-Zip
+  filter; without it the ARM64 portable exe and installer can't unpack themselves (an Embercrawl
+  lesson). `build/TESTERS.txt` ships as README.txt beside the exe. Bump `version` in
+  package.json for each release, then smoke-test the unpacked folders and portable exes.
+- `pnpm exec tsx scripts/make-icon.mts` redraws `build/icon.png` / `build/icon.ico` (pixel fist).
