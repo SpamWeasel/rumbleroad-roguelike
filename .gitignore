@@ -1,0 +1,14 @@
+node_modules/
+out/
+release/
+dist/
+*.tsbuildinfo
+coverage/
+.smoke/
+*.log
+.env
+.env.*
+.vscode/*
+.idea/
+Thumbs.db
+desktop.ini

@@ -1,0 +1,42 @@
+# Windows builds for x64 and ARM64 PCs. Run with `pnpm dist`. Three ways to get the game:
+# - a zip to unpack anywhere and run RumbleRow.exe (no installation; the main download),
+# - a single portable .exe that runs without installing (unpacks itself on each launch),
+# - an installer with Start menu and desktop shortcuts.
+# All three keep saves in %APPDATA%\RumbleRow, so moving or deleting the game never loses them.
+appId: com.rumblerow.game
+productName: RumbleRow
+copyright: Copyright © 2026 RumbleRow
+directories:
+  buildResources: build
+  output: release/${version}
+files:
+  - out/**/*
+asar: true
+win:
+  artifactName: ${productName}-${version}-${arch}.${ext}
+  target:
+    - target: zip
+      arch:
+        - x64
+        - arm64
+    - target: portable
+      arch:
+        - x64
+        - arm64
+    - target: nsis
+      arch:
+        - x64
+        - arm64
+portable:
+  artifactName: ${productName}-${version}-portable-${arch}.${ext}
+  buildUniversalInstaller: false
+nsis:
+  oneClick: false
+  perMachine: false
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: always
+  createStartMenuShortcut: true
+  shortcutName: Rumble Row
+  buildUniversalInstaller: false
+  deleteAppDataOnUninstall: false
+  artifactName: ${productName}-Setup-${version}-${arch}.${ext}
