@@ -4,6 +4,7 @@ import { playGame } from "../tests/bot";
 
 const runs = Number(process.argv[2] ?? 6);
 const maxTurns = Number(process.argv[3] ?? 60000);
+const difficulty = (process.argv[4] ?? "normal") as "easy" | "normal" | "hard";
 const route = [
   "maple",
   "alleys",
@@ -23,7 +24,7 @@ const route = [
 
 const reports = [];
 for (let i = 0; i < runs; i++) {
-  const r = playGame(1000 + i * 7, maxTurns);
+  const r = playGame(1000 + i * 7, maxTurns, difficulty);
   reports.push(r);
   const far = route.filter((a) => r.reached[a] !== undefined).pop();
   console.log(

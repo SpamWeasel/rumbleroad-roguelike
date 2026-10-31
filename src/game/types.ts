@@ -56,6 +56,38 @@ export const GEAR_SLOT_LABEL: Record<GearSlot, string> = {
 };
 
 export type Mode = "street" | "permadeath";
+export type Difficulty = "easy" | "normal" | "hard";
+
+/** How each difficulty changes the gangs and the cost of getting knocked out. */
+export const DIFFICULTY: Record<
+  Difficulty,
+  { label: string; damage: number; health: number; cash: number; koLoss: number; blurb: string }
+> = {
+  easy: {
+    label: "Easy",
+    damage: 0.75,
+    health: 0.85,
+    cash: 1.25,
+    koLoss: 0.25,
+    blurb: "Gangs hit softer and pay better. Getting knocked out costs a quarter of your cash.",
+  },
+  normal: {
+    label: "Normal",
+    damage: 1,
+    health: 1,
+    cash: 1,
+    koLoss: 0.5,
+    blurb: "The streets as intended. Getting knocked out costs half your cash.",
+  },
+  hard: {
+    label: "Hard",
+    damage: 1.2,
+    health: 1.1,
+    cash: 0.95,
+    koLoss: 0.6,
+    blurb: "Tougher gangs, thinner wallets. Getting knocked out costs 60% of your cash.",
+  },
+};
 
 export interface Fighter {
   id: number;
@@ -110,6 +142,9 @@ export interface Enemy extends Fighter {
   boss: boolean;
   /** Turns before this enemy may use a special move again. */
   cooldown: number;
+  /** An object picked up off the street (pipe, crate...). */
+  held?: string | null;
+  heldUses?: number;
   /** Flag set when this boss is beaten. */
   flag?: string;
 }
@@ -130,7 +165,7 @@ export interface Exit {
 export interface Area {
   id: string;
   name: string;
-  kind: "town" | "district" | "static";
+  kind: "town" | "district" | "static" | "arena";
   w: number;
   h: number;
   tiles: Uint8Array;
@@ -154,6 +189,8 @@ export interface LogLine {
   text: string;
   color: Color;
   turn: number;
+  /** How many times in a row this line happened (shown as x3). */
+  count?: number;
 }
 
 /** Things the screen should show or play: floating numbers, flashes and sounds. */
@@ -164,7 +201,10 @@ export type GameEvent =
   | { type: "shop"; shop: string }
   | { type: "area" }
   | { type: "dead" }
-  | { type: "win" };
+  | { type: "win" }
+  /** A heavy hit: the screen shakes a little (power 1-3). */
+  | { type: "impact"; power: number }
+  | { type: "bout"; result: "won" | "lost" };
 
 export type SoundId =
   | "punch"

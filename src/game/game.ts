@@ -1,4 +1,5 @@
 import { C, type Color } from "./colors";
+import { BET_ODDS, CLUBS } from "./data/arena";
 import { BOSSES, GANGS, KO_BARKS, SPOT_BARKS } from "./data/enemies";
 import { ITEMS, type ItemDef } from "./data/items";
 import { OBJECTS } from "./data/objects";
@@ -6,13 +7,15 @@ import { SHOPS } from "./data/shops";
 import { TECHNIQUES } from "./data/techniques";
 import { computeFov, lineOfFire } from "./fov";
 import { canStep, distanceMap } from "./grid";
-import { Rng } from "./rng";
+import { hashSeed, Rng } from "./rng";
 import { T, TILES, transparent, walkable } from "./tiles";
 import {
   ALL_STATS,
   type AnyStat,
   type Area,
+  DIFFICULTY,
   DIRS8,
+  type Difficulty,
   type Dir,
   type Enemy,
   type Exit,
@@ -30,9 +33,10 @@ import {
   type StatKey,
   type Stats,
 } from "./types";
-import { AREAS, buildArea, makeGangMember, START_AREA } from "./world";
+import { AREAS, buildArea, hashString, makeGangMember, reserveEnemyIds, START_AREA } from "./world";
 
-export const SAVE_VERSION = 1;
+/** Version 2 added difficulty, fight-club bouts and saving in the middle of an area. */
+export const SAVE_VERSION = 2;
 export const POCKET_SIZE = 8;
 
 const COST = {
@@ -61,6 +65,28 @@ export interface GameState {
   log: LogLine[];
   rng: number;
   over: "dead" | "won" | null;
+  difficulty: Difficulty;
+  /** The current area's enemies, loose items and explored squares, so a save resumes exactly. */
+  snapshot?: AreaSnapshot;
+  /** A fight-club bout in progress. */
+  bout?: BoutState | null;
+}
+
+export interface AreaSnapshot {
+  id: string;
+  enemies: Enemy[];
+  items: Area["items"];
+  /** Explored squares, run-length encoded. */
+  seen: string;
+}
+
+export interface BoutState {
+  club: string;
+  tier: number;
+  wager: number;
+  wave: number;
+  /** Where to put you back afterwards. */
+  back: { area: string; x: number; y: number };
 }
 
 export interface ShopLine {
@@ -70,6 +96,9 @@ export interface ShopLine {
   effect: string;
   /** Food that no longer raises any stat for you. */
   noGain: boolean;
+  /** Price today (daily specials are cheaper). */
+  price: number;
+  special: boolean;
 }
 
 const cheb = (a: { x: number; y: number }, b: { x: number; y: number }) =>
@@ -86,16 +115,30 @@ export class Game {
   private rng: Rng;
   /** Distance from the player, refreshed every turn, used by enemies to chase. */
   private chase: Int32Array;
+  /** A short hint for the screen ("Nobody in reach.") that isn't worth a log line. */
+  hint: { text: string; serial: number } | null = null;
+  private hintSerial = 0;
+  /** Cash lost on the last knock-out, for the "knocked out" notice. */
+  lastKoLoss = 0;
 
   private constructor(state: GameState) {
     this.s = state;
     this.rng = new Rng(state.rng);
     this.area = buildArea(state.areaId, state.seed, state.visits[state.areaId] ?? 1, state.flags);
+    const snap = state.snapshot;
+    if (snap && snap.id === state.areaId) {
+      this.area.enemies = snap.enemies;
+      this.area.items = snap.items;
+      decodeSeen(snap.seen, this.area.seen);
+      reserveEnemyIds(Math.max(0, ...snap.enemies.map((e) => e.id)));
+    } else {
+      for (const e of this.area.enemies) this.toughen(e);
+    }
     this.visible = new Uint8Array(this.area.w * this.area.h);
     this.chase = new Int32Array(0);
   }
 
-  static create(name: string, mode: Mode, seed: number): Game {
+  static create(name: string, mode: Mode, seed: number, difficulty: Difficulty = "normal"): Game {
     const player: Player = {
       id: 0,
       x: 0,
@@ -135,6 +178,8 @@ export class Game {
       log: [],
       rng: (seed ^ 0x5bd1e995) >>> 0,
       over: null,
+      difficulty,
+      bout: null,
     };
     const game = new Game(state);
     game.placeAtArrival("@");
@@ -150,9 +195,18 @@ export class Game {
 
   static load(json: string): Game {
     const state = JSON.parse(json) as GameState;
-    if (state.version !== SAVE_VERSION) throw new Error("This save is from a different version.");
+    if (state.version === 1) {
+      // 0.1 saves: no difficulty, and they always resumed at the area's entrance.
+      state.difficulty = "normal";
+      state.bout = null;
+      state.version = SAVE_VERSION;
+    }
+    if (state.version !== SAVE_VERSION)
+      throw new Error("This save is from a newer version of the game.");
+    if (!state.player || !AREAS[state.areaId]) throw new Error("The save file is damaged.");
+    const resumed = state.snapshot?.id === state.areaId;
     const game = new Game(state);
-    game.placeAtArrival(state.arrive);
+    if (!resumed) game.placeAtArrival(state.arrive);
     game.log(`Back in ${game.area.name}.`, C.light);
     game.updateView();
     return game;
@@ -160,7 +214,30 @@ export class Game {
 
   save(): string {
     this.s.rng = this.rng.state;
-    return JSON.stringify(this.s);
+    this.s.snapshot = {
+      id: this.area.id,
+      enemies: this.area.enemies,
+      items: this.area.items,
+      seen: encodeSeen(this.area.seen),
+    };
+    const text = JSON.stringify(this.s);
+    this.s.snapshot = undefined;
+    return text;
+  }
+
+  /** A one-line description of this game for the save-slot list. */
+  summary(): string {
+    const p = this.s.player;
+    const mode = this.s.mode === "permadeath" ? ", permadeath" : "";
+    return `${p.name} - ${this.area.name} - ${DIFFICULTY[this.s.difficulty].label}${mode} - ${p.kos} KOs`;
+  }
+
+  /** Gang members get tougher or softer with the difficulty. */
+  private toughen(e: Enemy): void {
+    const d = DIFFICULTY[this.s.difficulty];
+    e.maxHp = Math.max(1, Math.round(e.maxHp * d.health));
+    e.hp = Math.min(e.maxHp, Math.max(1, Math.round(e.hp * d.health)));
+    e.cash = Math.round(e.cash * d.cash);
   }
 
   get player(): Player {
@@ -195,8 +272,20 @@ export class Game {
   // Log and events
 
   log(text: string, color: Color = C.light): void {
+    // The same line again soon after just bumps a counter (shown as x2, x3...).
+    const last = this.s.log[this.s.log.length - 1];
+    if (last && last.text === text && this.s.turn - last.turn <= 5) {
+      last.count = (last.count ?? 1) + 1;
+      last.turn = this.s.turn;
+      return;
+    }
     this.s.log.push({ text, color, turn: this.s.turn });
     if (this.s.log.length > 300) this.s.log.splice(0, this.s.log.length - 300);
+  }
+
+  /** A passing hint shown at the bottom of the screen, not kept in the log. */
+  notice(text: string): void {
+    this.hint = { text, serial: ++this.hintSerial };
   }
 
   private pop(x: number, y: number, text: string, color: Color): void {
@@ -302,6 +391,7 @@ export class Game {
     const s = this.s;
     s.visits[id] = (s.visits[id] ?? 0) + 1;
     this.area = buildArea(id, s.seed, s.visits[id], s.flags);
+    for (const e of this.area.enemies) this.toughen(e);
     this.visible = new Uint8Array(this.area.w * this.area.h);
     s.areaId = id;
     s.arrive = arrive;
@@ -361,6 +451,7 @@ export class Game {
       p.time += 100;
       this.passTurn();
     }
+    this.checkBout();
   }
 
   private passTurn(): void {
@@ -446,8 +537,8 @@ export class Game {
     }
     if (!canStep(this.walk, p.x, p.y, dx, dy)) {
       const t = TILES[tile];
-      if (t.hazard === "water") this.log("You'd rather not go for a swim.", C.gray);
-      else if (t.hazard === "pit") this.log("That's a long way down.", C.gray);
+      if (t.hazard === "water") this.notice("You'd rather not go for a swim.");
+      else if (t.hazard === "pit") this.notice("That's a long way down.");
       return false;
     }
     p.x = nx;
@@ -507,7 +598,7 @@ export class Game {
     const p = this.s.player;
     const obj = this.area.items.find((i) => i.kind === "object" && i.x === p.x && i.y === p.y);
     if (!obj && !p.held) {
-      this.log("There's nothing here to pick up.", C.gray);
+      this.notice("There's nothing here to pick up.");
       return false;
     }
     if (p.held) {
@@ -553,12 +644,12 @@ export class Game {
     p.facing = dir;
     const target = this.enemyAt(p.x + dir[0], p.y + dir[1]);
     if (!target) {
-      this.log("Nobody in reach.", C.gray);
+      this.notice("Nobody in reach.");
       return false;
     }
     const held = p.held ? OBJECTS[p.held] : null;
     if (held && !held.swing) {
-      this.log(`Your hands are full with the ${held.name}. Throw it (T) or kick (K).`, C.gray);
+      this.notice(`Your hands are full with the ${held.name}. Throw it (T) or kick (K).`);
       return false;
     }
     if (held?.swing) {
@@ -587,7 +678,7 @@ export class Game {
     p.facing = dir;
     const target = this.enemyAt(p.x + dir[0], p.y + dir[1]);
     if (!target) {
-      this.log("Nobody in reach.", C.gray);
+      this.notice("Nobody in reach.");
       return false;
     }
     this.strike(p, target, this.kickRaw(), {
@@ -617,7 +708,7 @@ export class Game {
     const p = this.s.player;
     const check = this.canUseTechnique(index);
     if (!check.ok) {
-      this.log(check.why ?? "", C.gray);
+      this.notice(check.why ?? "");
       return false;
     }
     const t = TECHNIQUES[p.techniques[index]];
@@ -626,7 +717,7 @@ export class Game {
     const front = this.enemyAt(p.x + d[0], p.y + d[1]);
     const needsFront = ["haymaker", "uppercut", "flurry", "headbutt", "toss", "hundred"];
     if (needsFront.includes(t.id) && !front) {
-      this.log("Nobody in reach.", C.gray);
+      this.notice("Nobody in reach.");
       return false;
     }
     const around = () =>
@@ -635,7 +726,7 @@ export class Game {
         dd: Dir;
       }[];
     if ((t.id === "sweep" || t.id === "spinkick") && around().length === 0) {
-      this.log("Nobody close enough.", C.gray);
+      this.notice("Nobody close enough.");
       return false;
     }
     p.guts -= t.guts;
@@ -856,7 +947,7 @@ export class Game {
     if (!this.beginAction()) return false;
     const p = this.s.player;
     if (!p.held) {
-      this.log("You're not holding anything. Stand on an object and press G.", C.gray);
+      this.notice("You're not holding anything. Stand on an object and press G.");
       return false;
     }
     const def = OBJECTS[p.held];
@@ -921,7 +1012,7 @@ export class Game {
     const item = id ? ITEMS[id] : undefined;
     if (!item) return false;
     if (item.revive) {
-      this.log(`${item.name} work on their own if you get knocked out.`, C.gray);
+      this.notice(`${item.name} work on their own if you get knocked out.`);
       return false;
     }
     if (item.blast) {
@@ -1066,6 +1157,7 @@ export class Game {
       crit = true;
     }
     if (lying) dmg *= 1.25;
+    if (!byPlayer) dmg *= DIFFICULTY[this.s.difficulty].damage;
     let knock = o.knock ?? 0;
     let stun = o.stun ?? 0;
     let down = o.down ?? 0;
@@ -1084,6 +1176,12 @@ export class Game {
       byPlayer ? (crit ? C.yellow : C.white) : C.red,
     );
     this.sound(target === p ? "hurt" : o.sound);
+    // Big hits shake the screen; whoever hit you flashes so you can see who it was.
+    const targetMax = target === p ? this.maxHp() : (target as Enemy).maxHp;
+    if (crit || amount >= targetMax * 0.25)
+      this.events.push({ type: "impact", power: amount >= targetMax * 0.4 ? 2 : 1 });
+    if (!byPlayer)
+      this.events.push({ type: "flash", x: attacker.x, y: attacker.y, color: C.orange });
     if (byPlayer) {
       const e = target as Enemy;
       this.log(
@@ -1165,6 +1263,7 @@ export class Game {
         );
         this.pop(f.x, f.y, "SLAM", C.orange);
         this.sound("slam");
+        this.events.push({ type: "impact", power: 2 });
         if (f.hp > 0) f.stun = Math.max(f.stun, 1);
         this.damage(f, dmg);
         return;
@@ -1242,6 +1341,10 @@ export class Game {
     p.kos++;
     this.sound("ko");
     const at = dropAt ?? { x: e.x, y: e.y };
+    this.events.push({ type: "impact", power: e.boss ? 3 : 1 });
+    // Whatever they were holding clatters to the ground.
+    if (e.held && this.walk(at.x, at.y))
+      this.area.items.push({ kind: "object", x: at.x, y: at.y, id: e.held });
     if (e.boss) {
       const b = BOSSES[e.kind];
       this.log(`${b.name} goes down! ${b.defeat}`, b.color);
@@ -1260,10 +1363,13 @@ export class Game {
       }
       return;
     }
-    this.log(`${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}" (+$${e.cash})`, e.color);
+    this.log(
+      `${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}"${e.cash > 0 ? ` (+$${e.cash})` : ""}`,
+      e.color,
+    );
     this.pop(e.x, e.y, "KO", e.color);
     if (e.cash > 0) this.collectCash(e.cash, at);
-    if (this.rng.chance(0.08) && this.walk(at.x, at.y)) {
+    if (!this.s.bout && this.rng.chance(0.08) && this.walk(at.x, at.y)) {
       const drop = this.rng.pick(["candy", "soda", "bandage", "gum", "jerky", "firecracker"]);
       this.area.items.push({ kind: "item", x: at.x, y: at.y, id: drop });
     }
@@ -1279,6 +1385,10 @@ export class Game {
   private playerDown(): void {
     const p = this.s.player;
     if (p.hp > 0 || this.s.over) return;
+    if (this.s.bout) {
+      this.endBout(false);
+      return;
+    }
     const salts = p.pockets.findIndex((id) => ITEMS[id]?.revive);
     if (salts >= 0) {
       p.pockets.splice(salts, 1);
@@ -1299,7 +1409,7 @@ export class Game {
       this.events.push({ type: "dead" });
       return;
     }
-    const lost = Math.floor(p.cash / 2);
+    const lost = Math.floor(p.cash * DIFFICULTY[this.s.difficulty].koLoss);
     p.cash -= lost;
     p.hp = this.maxHp();
     p.guts = this.maxGuts();
@@ -1308,6 +1418,7 @@ export class Game {
     p.held = null;
     p.buffs = [];
     this.log(`You black out... You wake up back in town, $${lost} lighter.`, C.red);
+    this.lastKoLoss = lost;
     const town = this.s.lastTown;
     this.enterArea(town, town === START_AREA ? "@" : "<");
     this.events.push({ type: "dead" });
@@ -1374,6 +1485,8 @@ export class Game {
   private gangTurn(e: Enemy, dist: number): number {
     const p = this.s.player;
     const dir: Dir = [sign(p.x - e.x), sign(p.y - e.y)];
+    const used = this.useStreetObject(e, dist);
+    if (used) return used;
     if (e.ai === "thrower") {
       if (
         dist >= 2 &&
@@ -1414,11 +1527,105 @@ export class Game {
         });
         return 120;
       }
+      const weapon = e.held ? OBJECTS[e.held] : null;
+      if (weapon?.swing) {
+        const raw = this.enemyPunch(e) + weapon.swing.damage * 0.5 + e.stats.strength * 0.2;
+        this.strike(e, p, raw, { dir, verb: `swing the ${weapon.name} at`, sound: "punch" });
+        e.heldUses = (e.heldUses ?? 1) - 1;
+        if (e.heldUses <= 0) {
+          this.log(`${e.name}'s ${weapon.name} breaks!`, C.gray);
+          e.held = null;
+        }
+        return 95;
+      }
       this.strike(e, p, this.enemyPunch(e), { dir, verb: "punch", sound: "punch" });
       return 90;
     }
     this.approach(e);
     return 100;
+  }
+
+  /**
+   * Gang members grab pipes, bats and trash cans lying around: weapons they swing, everything
+   * else they throw. Returns the time used, or 0 if they did nothing with an object.
+   */
+  private useStreetObject(e: Enemy, dist: number): number {
+    if (e.ai === "thrower" || e.boss) return 0;
+    const p = this.s.player;
+    if (!e.held) {
+      const here = this.area.items.find((i) => i.kind === "object" && i.x === e.x && i.y === e.y);
+      if (here && here.kind === "object" && dist > 1) {
+        this.area.items.splice(this.area.items.indexOf(here), 1);
+        const def = OBJECTS[here.id];
+        e.held = here.id;
+        e.heldUses = def.swing?.uses ?? 0;
+        if (this.visible[e.y * this.area.w + e.x])
+          this.log(`${e.name} picks up a ${def.name}!`, C.orange);
+        return 60;
+      }
+      // Step onto something useful nearby instead of rushing in empty-handed.
+      if (dist >= 3 && this.rng.chance(0.5)) {
+        for (const d of DIRS8) {
+          const x = e.x + d[0];
+          const y = e.y + d[1];
+          if (
+            this.free(x, y) &&
+            this.area.items.some((i) => i.kind === "object" && i.x === x && i.y === y)
+          ) {
+            e.x = x;
+            e.y = y;
+            return 100;
+          }
+        }
+      }
+      return 0;
+    }
+    const def = OBJECTS[e.held];
+    if (def.swing) return 0;
+    const clear = lineOfFire(
+      e.x,
+      e.y,
+      p.x,
+      p.y,
+      (x, y) => !transparent(this.tileAt(x, y)) || !!this.enemyAt(x, y),
+    );
+    if (dist < 2 || dist > 5 || !clear) return 0;
+    e.held = null;
+    this.sound("throw");
+    const chance = Math.max(40, Math.min(90, 70 + (e.stats.agility - this.stat("agility")) * 0.75));
+    if (this.rng.next() * 100 >= chance) {
+      this.log(`${e.name} hurls a ${def.name} at you - and misses!`, C.gray);
+      this.dropNear(def.id, p.x, p.y, def.breaks);
+      return 110;
+    }
+    let dmg =
+      (def.thrown + e.stats.strength * 0.5) *
+      this.rng.range(0.85, 1.15) *
+      (30 / (30 + this.stat("defense")));
+    dmg *= DIFFICULTY[this.s.difficulty].damage;
+    if (p.guard) dmg *= 0.4;
+    const amount = Math.max(1, Math.round(dmg));
+    this.log(`${e.name} hurls a ${def.name} at you for ${amount}!`, C.red);
+    this.events.push({ type: "flash", x: e.x, y: e.y, color: C.orange });
+    this.dropNear(def.id, p.x, p.y, def.breaks);
+    this.damage(p, amount);
+    if (p.hp > 0 && def.knock > 0 && !p.guard)
+      this.knockBack(p, [sign(p.x - e.x), sign(p.y - e.y)], def.knock, e.stats.strength);
+    return 110;
+  }
+
+  /** A thrown object lands next to where it hit (unless it smashed). */
+  private dropNear(id: string, x: number, y: number, breaks: boolean): void {
+    if (breaks) return;
+    for (const d of [[0, 0], ...DIRS8]) {
+      const nx = x + d[0];
+      const ny = y + d[1];
+      const t = this.tileAt(nx, ny);
+      if (walkable(t) && t !== T.EXIT && t !== T.DOOR) {
+        this.area.items.push({ kind: "object", x: nx, y: ny, id });
+        return;
+      }
+    }
   }
 
   private bossTurn(e: Enemy, dist: number): number {
@@ -1574,7 +1781,7 @@ export class Game {
       this.pop(p.x, p.y, "miss", C.gray);
       return;
     }
-    let dmg = raw * (30 / (30 + this.stat("defense")));
+    let dmg = raw * (30 / (30 + this.stat("defense"))) * DIFFICULTY[this.s.difficulty].damage;
     if (p.guard) dmg *= 0.4;
     const amount = Math.max(1, Math.round(dmg));
     this.log(`${e.name} beans you with a ${missile} for ${amount}.`, C.red);
@@ -1601,6 +1808,7 @@ export class Game {
         );
         goon.awake = true;
         goon.time = boss.time + 50;
+        this.toughen(goon);
         this.area.enemies.push(goon);
         placed++;
       }
@@ -1698,8 +1906,31 @@ export class Game {
         soldOut: item.kind === "book" && this.s.soldOut.includes(id),
         effect: describeItem(item),
         noGain: !!gains && gains.length === 0 && !item.heal && !item.gutsUp,
+        price: this.priceOf(shopId, id),
+        special: this.specialOf(shopId) === id,
       };
     });
+  }
+
+  /**
+   * Today's special: one dish per restaurant, stand or store is 40% off. It changes every time
+   * you come back to the area.
+   */
+  specialOf(shopId: string): string | null {
+    const shop = SHOPS[shopId];
+    if (!shop || !["food", "vendor", "store"].includes(shop.kind)) return null;
+    const options = shop.stock.filter(
+      (id) => ["food", "tonic"].includes(ITEMS[id].kind) && ITEMS[id].price >= 3,
+    );
+    if (options.length === 0) return null;
+    const visit = this.s.visits[this.area.id] ?? 1;
+    const roll = hashSeed(this.s.seed, hashString(shopId), visit);
+    return options[roll % options.length];
+  }
+
+  priceOf(shopId: string, itemId: string): number {
+    const price = ITEMS[itemId].price;
+    return this.specialOf(shopId) === itemId ? Math.max(1, Math.round(price * 0.6)) : price;
   }
 
   private possibleGains(item: ItemDef): AnyStat[] {
@@ -1718,16 +1949,17 @@ export class Game {
       return { ok: false, message: "That's not sold here." };
     if (item.kind === "book" && this.s.soldOut.includes(itemId))
       return { ok: false, message: "Sold out. You've read it already." };
-    if (p.cash < item.price) {
+    const price = this.priceOf(shopId, itemId);
+    if (p.cash < price) {
       this.sound("deny");
-      return { ok: false, message: `You need $${item.price - p.cash} more.` };
+      return { ok: false, message: `You need $${price - p.cash} more.` };
     }
     const pocketed = item.kind === "tonic" || (bag && item.takeout);
     if (pocketed && p.pockets.length >= POCKET_SIZE) {
       this.sound("deny");
       return { ok: false, message: "Your pockets are full." };
     }
-    p.cash -= item.price;
+    p.cash -= price;
     if (pocketed) {
       p.pockets.push(itemId);
       this.sound("buy");
@@ -1836,6 +2068,173 @@ export class Game {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Fight clubs
+
+  /** Pays the fee (and an optional bet on yourself) and steps into the ring. */
+  startBout(clubId: string, tier: number, wager: number): { ok: boolean; message: string } {
+    const club = CLUBS[clubId];
+    const bout = club?.bouts[tier];
+    const p = this.s.player;
+    if (!bout || this.s.bout) return { ok: false, message: "Not now." };
+    const bet = Math.max(0, Math.floor(wager));
+    const total = bout.fee + bet;
+    if (p.cash < total) {
+      this.sound("deny");
+      return { ok: false, message: `You need $${total - p.cash} more.` };
+    }
+    p.cash -= total;
+    p.held = null;
+    this.s.bout = {
+      club: clubId,
+      tier,
+      wager: bet,
+      wave: 0,
+      back: { area: this.area.id, x: p.x, y: p.y },
+    };
+    this.enterArea(club.arena, "@");
+    this.log(
+      `${bout.name}: ${bout.waves.length} rounds for a $${bout.purse} purse.${bet ? ` You bet $${bet} on yourself.` : ""}`,
+      C.yellow,
+    );
+    this.spawnWave();
+    this.updateView();
+    return { ok: true, message: "" };
+  }
+
+  /** Walk out of a bout early (counts as a loss, but you keep your health). */
+  forfeitBout(): void {
+    if (this.s.bout) this.endBout(false, true);
+  }
+
+  boutInfo(): { name: string; round: number; rounds: number; wager: number } | null {
+    const b = this.s.bout;
+    if (!b) return null;
+    const bout = CLUBS[b.club].bouts[b.tier];
+    return { name: bout.name, round: b.wave + 1, rounds: bout.waves.length, wager: b.wager };
+  }
+
+  private spawnWave(): void {
+    const b = this.s.bout;
+    if (!b) return;
+    const club = CLUBS[b.club];
+    const bout = club.bouts[b.tier];
+    const p = this.s.player;
+    const count = bout.waves[b.wave];
+    const last = b.wave === bout.waves.length - 1;
+    // Challengers come in from the far side of the ring.
+    const spots: { x: number; y: number }[] = [];
+    for (let y = 0; y < this.area.h; y++)
+      for (let x = 0; x < this.area.w; x++)
+        if (this.tileAt(x, y) === T.CARPET && this.free(x, y) && cheb({ x, y }, p) >= 4)
+          spots.push({ x, y });
+    this.rng.shuffle(spots);
+    spots.sort((a, c) => cheb(c, p) - cheb(a, p));
+    const pick = spots.slice(0, Math.max(count * 3, 8));
+    this.rng.shuffle(pick);
+    for (let i = 0; i < count && i < pick.length; i++) {
+      const { x, y } = pick[i];
+      const gang = this.rng.pick(club.gangs);
+      const champ = last && bout.champion && i === 0 ? bout.champion : null;
+      const rank = champ
+        ? "lieutenant"
+        : this.rng.pick(["punk", "punk", "scrapper", "bruiser", "slinger"] as const);
+      const e = makeGangMember(this.rng, gang, rank, bout.depth + (champ ? 1 : 0), x, y);
+      if (champ) {
+        e.name = champ.name;
+        e.title = champ.title;
+        e.glyph = "C";
+        e.color = champ.color;
+        e.maxHp = Math.round(e.maxHp * 1.6);
+        e.hp = e.maxHp;
+        for (const k of Object.keys(e.stats) as AnyStat[])
+          e.stats[k] = Math.round(e.stats[k] * 1.15);
+      }
+      this.toughen(e);
+      e.cash = 0;
+      e.awake = true;
+      e.time = p.time + this.rng.int(30, 90);
+      this.area.enemies.push(e);
+    }
+    if (last && bout.champion) {
+      this.log(
+        `In this corner... ${bout.champion.name}, ${bout.champion.title}!`,
+        bout.champion.color,
+      );
+    } else {
+      this.log(
+        `Round ${b.wave + 1}${last ? " - the final round" : ""}! ${count} challengers step through the ropes.`,
+        C.yellow,
+      );
+    }
+  }
+
+  private checkBout(): void {
+    const b = this.s.bout;
+    if (!b || this.s.over || this.area.kind !== "arena" || this.area.enemies.length > 0) return;
+    const bout = CLUBS[b.club].bouts[b.tier];
+    b.wave++;
+    if (b.wave < bout.waves.length) {
+      this.log("DING DING! Next round!", C.yellow);
+      this.sound("door");
+      this.spawnWave();
+      return;
+    }
+    this.endBout(true);
+  }
+
+  private endBout(won: boolean, forfeit = false): void {
+    const s = this.s;
+    const b = s.bout;
+    if (!b) return;
+    const club = CLUBS[b.club];
+    const bout = club.bouts[b.tier];
+    const p = s.player;
+    s.bout = null;
+    if (won) {
+      const winnings = bout.purse + b.wager * BET_ODDS;
+      p.cash += winnings;
+      this.log(`You win ${bout.name}! The crowd goes wild. +$${winnings}`, C.gold);
+      this.sound("levelup");
+      const titleFlag = `title_${club.id}`;
+      if (bout.champion && !s.flags[titleFlag]) {
+        s.flags[titleFlag] = true;
+        const prize = ITEMS[bout.champion.prize];
+        if (prize?.slot) {
+          const old = p.gear[prize.slot];
+          if (old) p.cash += Math.floor(ITEMS[old].price / 4);
+          p.gear[prize.slot] = prize.id;
+          this.log(
+            `You're the new champ! You win the ${prize.name} (${describeBonus(prize.stats ?? {})}) and put it on.${old ? ` Your ${ITEMS[old].name} goes to a fan for $${Math.floor(ITEMS[old].price / 4)}.` : ""}`,
+            C.yellow,
+          );
+        }
+      }
+    } else {
+      if (!forfeit) p.hp = Math.max(1, Math.ceil(this.maxHp() * 0.3));
+      p.stun = 0;
+      p.down = 0;
+      this.log(
+        forfeit
+          ? `You duck out of the ring. The crowd boos.${b.wager ? ` Your $${b.wager} bet is gone.` : ""}`
+          : `You're counted out! You lose the bout${b.wager ? ` and your $${b.wager} bet` : ""}. The bouncers drag you outside.`,
+        C.red,
+      );
+    }
+    // Back out on the street, right where you went in.
+    const back = b.back;
+    this.area = buildArea(back.area, s.seed, s.visits[back.area] ?? 1, s.flags);
+    this.visible = new Uint8Array(this.area.w * this.area.h);
+    s.areaId = back.area;
+    s.arrive = back.area === START_AREA ? "@" : "<";
+    p.x = back.x;
+    p.y = back.y;
+    p.time = 0;
+    this.area.start = { x: p.x, y: p.y };
+    this.updateView();
+    this.events.push({ type: "bout", result: won ? "won" : "lost" }, { type: "area" });
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Info for the screen
 
   /** One-line description of what's at a square (for looking around). */
@@ -1861,6 +2260,34 @@ export class Game {
 function thirdPerson(verb: string): string {
   if (verb.endsWith("s")) return verb;
   return /(ch|sh|x)$/.test(verb) ? `${verb}es` : `${verb}s`;
+}
+
+/** Explored squares as run lengths ("12,5,30" = 12 unseen, 5 seen, 30 unseen...). */
+function encodeSeen(seen: Uint8Array): string {
+  const runs: number[] = [];
+  let cur = 0;
+  let n = 0;
+  for (const v of seen) {
+    if (v === cur) n++;
+    else {
+      runs.push(n);
+      cur = v;
+      n = 1;
+    }
+  }
+  runs.push(n);
+  return runs.join(",");
+}
+
+function decodeSeen(text: string, out: Uint8Array): void {
+  let i = 0;
+  let v = 0;
+  for (const part of text.split(",")) {
+    const n = Number(part) || 0;
+    out.fill(v, i, Math.min(out.length, i + n));
+    i += n;
+    v = 1 - v;
+  }
 }
 
 export function describeBonus(b: StatBonus): string {

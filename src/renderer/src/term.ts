@@ -13,6 +13,8 @@ export class Term {
   offX = 0;
   offY = 0;
   private font = "";
+  /** Settings > Text size: draws characters a little bigger inside their cells. */
+  fontScale = 1;
 
   constructor(
     readonly cols = COLS,
@@ -135,7 +137,13 @@ export class Term {
     canvas.style.height = `${height}px`;
     canvas.width = Math.round(width * dpr);
     canvas.height = Math.round(height * dpr);
-    const size = Math.floor(Math.min(this.cellH * 0.86, this.cellW / 0.56));
+    const size = Math.floor(
+      Math.min(
+        this.cellH * 0.86 * this.fontScale,
+        (this.cellW / 0.56) * this.fontScale,
+        this.cellH * 0.98,
+      ),
+    );
     this.font = `${size}px Consolas, "Cascadia Mono", "DejaVu Sans Mono", "Courier New", monospace`;
   }
 

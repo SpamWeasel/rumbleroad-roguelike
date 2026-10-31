@@ -1,4 +1,5 @@
 import type { Color } from "./colors";
+import { ARENA_MAP } from "./data/arena";
 import { BOSSES, GANGS, NICKNAMES, RANKS, type Rank } from "./data/enemies";
 import { HARBOR, LIGHTHOUSE, LOBBY, MAPLE, NEON, PIER9, ROOF, TRAINYARD } from "./data/maps";
 import { OBJECT_BY_LETTER } from "./data/objects";
@@ -49,6 +50,7 @@ def({
     "5": "ironside",
     "6": "chapter",
     "7": "home",
+    "8": "club_maple",
   },
   exits: { ">": { to: "alleys", arrive: "<" } },
   intro: "Maple Street. Home. The gangs have been creeping closer every week.",
@@ -104,6 +106,7 @@ def({
     "5": "apoth",
     "6": "riptide",
     "7": "bath",
+    "8": "club_harbor",
   },
   exits: {
     "<": { to: "trainyard", arrive: ">" },
@@ -165,7 +168,15 @@ def({
   kind: "town",
   depth: 6,
   map: NEON,
-  doors: { "1": "mikes", "2": "juice", "3": "arcade", "4": "chrome", "5": "dojo", "6": "nightrx" },
+  doors: {
+    "1": "mikes",
+    "2": "juice",
+    "3": "arcade",
+    "4": "chrome",
+    "5": "dojo",
+    "6": "nightrx",
+    "8": "club_neon",
+  },
   exits: { "<": { to: "pier9", arrive: ">" }, ">": { to: "park", arrive: "<" } },
   intro: "The Neon Strip. Buzzing signs, all-night food, and Crown Tower looming in the distance.",
 });
@@ -226,6 +237,22 @@ def({
   exits: { "<": { to: "lobby", arrive: ">" } },
   intro: "The roof. Wind howls. Duke Varga waits on the helipad. Don't get knocked off the edge.",
 });
+
+for (const [id, name] of [
+  ["arena_maple", "The Boiler Room"],
+  ["arena_harbor", "The Bilge"],
+  ["arena_neon", "The Velvet Pit"],
+] as const) {
+  def({
+    id,
+    name,
+    kind: "arena",
+    depth: 0,
+    map: ARENA_MAP,
+    exits: {},
+    intro: `${name}. The crowd roars as you duck under the ropes.`,
+  });
+}
 
 export const START_AREA = "maple";
 
@@ -351,6 +378,11 @@ export function parseStatic(map: string, doors: Record<string, string> = {}): St
 // Enemies
 
 let nextEnemyId = 1;
+
+/** After loading a save, new enemies get ids above every existing one. */
+export function reserveEnemyIds(above: number): void {
+  nextEnemyId = Math.max(nextEnemyId, above + 1);
+}
 
 /** How much tougher gang members are at a depth. */
 export function scaleFor(depth: number) {
@@ -509,7 +541,7 @@ export function buildArea(
     lamp: lit ?? new Uint8Array(w * h),
     enemies,
     items,
-    lit: d.kind === "town" || id === "lighthouse",
+    lit: d.kind === "town" || d.kind === "arena" || id === "lighthouse",
     depth: d.depth,
     gang: d.gang ?? null,
     start: startAt,

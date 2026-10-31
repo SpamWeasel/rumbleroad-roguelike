@@ -2,7 +2,15 @@ import type { SoundId } from "../../game/types";
 
 /** Small synthesized sound effects; nothing is loaded from disk. */
 let ctx: AudioContext | null = null;
+let master: GainNode | null = null;
 let muted = false;
+/** 0-1. */
+let volume = 0.7;
+
+export function setVolume(value: number): void {
+  volume = Math.max(0, Math.min(1, value));
+  if (master) master.gain.value = volume;
+}
 
 export function setMuted(value: boolean): void {
   muted = value;
@@ -14,9 +22,14 @@ export function isMuted(): boolean {
 function audio(): AudioContext | null {
   if (muted) return null;
   try {
-    ctx ??= new AudioContext();
+    if (!ctx) {
+      ctx = new AudioContext();
+      master = ctx.createGain();
+      master.gain.value = volume;
+      master.connect(ctx.destination);
+    }
     if (ctx.state === "suspended") void ctx.resume();
-    return ctx;
+    return volume > 0 ? ctx : null;
   } catch {
     return null;
   }
@@ -40,7 +53,7 @@ function tone(
   o.frequency.exponentialRampToValueAtTime(Math.max(20, to), t + dur);
   g.gain.setValueAtTime(vol, t);
   g.gain.exponentialRampToValueAtTime(0.001, t + dur);
-  o.connect(g).connect(a.destination);
+  o.connect(g).connect(master as GainNode);
   o.start(t);
   o.stop(t + dur + 0.02);
 }
@@ -60,7 +73,10 @@ function noise(dur: number, cutoff: number, vol = 0.2, delay = 0, high = false):
   f.frequency.value = cutoff;
   const g = a.createGain();
   g.gain.value = vol;
-  src.connect(f).connect(g).connect(a.destination);
+  src
+    .connect(f)
+    .connect(g)
+    .connect(master as GainNode);
   src.start(t);
 }
 

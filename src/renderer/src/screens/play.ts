@@ -10,8 +10,11 @@ import { isWallLike, T, TILES, walkable } from "../../../game/tiles";
 import { type Area, type Dir, GEAR_SLOTS, STAT_KEYS, STAT_SHORT } from "../../../game/types";
 import { AREAS } from "../../../game/world";
 import type { App, Screen } from "../app";
-import { digitFromKey, dirFromKey, isWaitKey } from "../input";
+import { digitFromKey } from "../input";
+import { addRecord } from "../records";
+import { ACTION_DIR, actionFor, keyName, settings } from "../settings";
 import type { Term } from "../term";
+import { ArenaScreen } from "./arena";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
 import { ShopScreen } from "./shop";
@@ -35,18 +38,26 @@ interface Pop {
 }
 
 export class PlayScreen implements Screen {
+  readonly playing = true;
   pending: Pending | null = null;
   private pops: Pop[] = [];
   private flashes: { x: number; y: number; color: string; t0: number }[] = [];
   private camX = 0;
   private camY = 0;
   private signs = new WeakMap<Area, Map<number, { ch: string; color: string }>>();
-  private knockedOutCash = 0;
+  /** The grid cell under the mouse, for the info box. */
+  private mouse: { x: number; y: number } | null = null;
+  /** The hint on show and when it appeared. */
+  private hintShown = { serial: 0, at: 0 };
 
   constructor(private app: App) {}
 
   get game(): Game {
     return this.app.game as Game;
+  }
+
+  hover(cell: { x: number; y: number } | null): void {
+    this.mouse = cell;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -59,70 +70,68 @@ export class PlayScreen implements Screen {
       this.answerDirection(e);
       return;
     }
-    const dir = dirFromKey(e);
+    const action = actionFor(e.code);
+    const dir = action ? ACTION_DIR[action] : undefined;
     if (dir) {
       g.move(dir[0], dir[1]);
       this.flush();
       return;
     }
-    if (e.repeat && !isWaitKey(e)) return;
-    if (isWaitKey(e)) {
-      g.wait();
-      this.flush();
-      return;
-    }
+    if (e.repeat && action !== "wait") return;
     const digit = digitFromKey(e);
-    if (digit) {
+    if (digit && !action) {
       this.useTechnique(digit - 1);
       return;
     }
-    switch (e.code) {
-      case "KeyJ":
+    switch (action) {
+      case "wait":
+        g.wait();
+        this.flush();
+        return;
+      case "punch":
         this.attack("punch");
         return;
-      case "KeyK":
+      case "kick":
         this.attack("kick");
         return;
-      case "KeyL":
+      case "special":
         this.useTechnique(g.player.selected);
         return;
-      case "Tab": {
+      case "nextSpecial": {
         const n = g.player.techniques.length;
         if (n) g.player.selected = (g.player.selected + (e.shiftKey ? n - 1 : 1)) % n;
+        else g.notice("No special moves yet. Gyms teach them.");
         return;
       }
-      case "Space":
-      case "KeyB":
+      case "guard":
         g.guard();
         this.flush();
         return;
-      case "KeyG":
+      case "grab":
         g.grab();
         this.flush();
         return;
-      case "KeyT":
+      case "throw":
         if (!g.player.held) {
-          g.log("You're not holding anything to throw. Stand on an object and press G.", C.gray);
+          g.notice("You're not holding anything to throw. Stand on an object and grab it first.");
           return;
         }
         this.pending = { kind: "throw", index: 0 };
         return;
-      case "KeyI":
+      case "pockets":
         this.app.push(new PocketsScreen(this.app, this));
         return;
-      case "KeyR":
+      case "rest":
         g.rest();
         this.flush();
         return;
-      case "KeyM":
+      case "log":
         this.app.push(new LogScreen(this.app));
         return;
-      case "Slash":
-      case "F1":
-      case "KeyH":
+      case "help":
         this.app.push(new HelpScreen(this.app));
         return;
-      case "Escape":
+      case "menu":
         this.app.push(new MenuScreen(this.app));
         return;
     }
@@ -132,7 +141,7 @@ export class PlayScreen implements Screen {
     const g = this.game;
     const adj = g.adjacentEnemies();
     if (adj.length === 0) {
-      g.log("Nobody in reach.", C.gray);
+      g.notice("Nobody in reach.");
       return;
     }
     if (adj.length === 1) {
@@ -147,7 +156,7 @@ export class PlayScreen implements Screen {
     const g = this.game;
     const check = g.canUseTechnique(index);
     if (!check.ok) {
-      g.log(check.why ?? "", C.gray);
+      g.notice(check.why ?? "");
       return;
     }
     g.player.selected = index;
@@ -174,16 +183,18 @@ export class PlayScreen implements Screen {
   private answerDirection(e: KeyboardEvent): void {
     const g = this.game;
     const p = this.pending as Pending;
-    if (e.code === "Escape") {
+    const action = actionFor(e.code);
+    if (e.code === "Escape" || action === "menu") {
       this.pending = null;
       return;
     }
     const again =
-      (p.kind === "punch" && e.code === "KeyJ") ||
-      (p.kind === "kick" && e.code === "KeyK") ||
-      (p.kind === "throw" && e.code === "KeyT") ||
-      (p.kind === "tech" && (e.code === "KeyL" || digitFromKey(e) === p.index + 1));
-    const dir: Dir | null = dirFromKey(e) ?? (again ? g.player.facing : null);
+      (p.kind === "punch" && action === "punch") ||
+      (p.kind === "kick" && action === "kick") ||
+      (p.kind === "throw" && action === "throw") ||
+      (p.kind === "tech" && (action === "special" || digitFromKey(e) === p.index + 1));
+    const aimed = action ? ACTION_DIR[action] : undefined;
+    const dir: Dir | null = aimed ?? (again ? g.player.facing : null);
     if (!dir) return;
     this.pending = null;
     if (p.kind === "punch") g.punch(dir);
@@ -202,6 +213,8 @@ export class PlayScreen implements Screen {
     let dead = false;
     let win = false;
     let area = false;
+    let bout: "won" | "lost" | null = null;
+    let impact = 0;
     for (const ev of g.events) {
       if (ev.type === "pop")
         this.pops.push({ ...ev, t0: now + this.pops.filter((p) => now - p.t0 < 100).length * 70 });
@@ -211,48 +224,63 @@ export class PlayScreen implements Screen {
       else if (ev.type === "dead") dead = true;
       else if (ev.type === "win") win = true;
       else if (ev.type === "area") area = true;
+      else if (ev.type === "impact") impact = Math.max(impact, ev.power);
+      else if (ev.type === "bout") bout = ev.result;
     }
     g.events.length = 0;
+    if (impact) this.app.impact(impact);
     if (area) {
       this.pops = [];
       this.flashes = [];
     }
     if (win) {
       void this.app.save();
+      void addRecord(g, "won");
       this.app.push(new EndScreen(this.app, "won"));
       return;
     }
     if (dead) {
       if (g.s.over === "dead") {
         void this.app.forget();
+        void addRecord(g, "dead");
         this.app.push(new EndScreen(this.app, "dead"));
         return;
       }
       void this.app.save();
+      const lines = [
+        "Everything goes black...",
+        "",
+        `You wake up back in ${g.area.name}, $${g.lastKoLoss} poorer.`,
+        "Eat something, train up, and try again.",
+      ];
+      this.app.push(new NoticeScreen(this.app, "KNOCKED OUT", lines, C.red));
+      return;
+    }
+    if (bout) {
+      void this.app.save();
+      const won = bout === "won";
+      const lines = g.s.log.slice(-3).map((l) => l.text);
       this.app.push(
-        new NoticeScreen(
-          this.app,
-          "KNOCKED OUT",
-          [
-            "Everything goes black...",
-            "",
-            `You wake up back in ${g.area.name}, with half your cash gone.`,
-            "Eat something, train up, and try again.",
-          ],
-          C.red,
-        ),
+        new NoticeScreen(this.app, won ? "VICTORY!" : "COUNTED OUT", lines, won ? C.gold : C.red),
       );
       return;
     }
     if (area) void this.app.save();
-    if (shop) this.app.push(new ShopScreen(this.app, shop));
+    else this.app.autosave();
+    if (shop) {
+      const arena = SHOPS[shop]?.kind === "arena";
+      this.app.push(arena ? new ArenaScreen(this.app, shop, this) : new ShopScreen(this.app, shop));
+    }
   }
 
   animating(now: number): boolean {
+    const g = this.game;
+    if (g.hint && g.hint.serial !== this.hintShown.serial) return true;
     return (
       this.pops.some((p) => now - p.t0 < 800) ||
       this.flashes.some((f) => now - f.t0 < 200) ||
-      this.game.area.enemies.some((e) => e.windup || e.stun > 0) ||
+      g.area.enemies.some((e) => e.windup || e.stun > 0) ||
+      now - this.hintShown.at < 3000 ||
       !!this.pending
     );
   }
@@ -265,6 +293,7 @@ export class PlayScreen implements Screen {
     this.drawSidebar(t);
     this.drawLog(t);
     this.drawHints(t, now);
+    this.drawInfoBox(t);
   }
 
   private camera(): void {
@@ -569,7 +598,7 @@ export class PlayScreen implements Screen {
     const foes = g.visibleEnemies();
     t.text(x + 1, y++, foes.length ? "IN SIGHT" : "All quiet.", foes.length ? C.orange : C.dim);
     for (const e of foes) {
-      if (y >= 36) break;
+      if (y >= (g.s.bout ? 34 : 36)) break;
       t.put(x + 1, y, e.glyph, e.color);
       const label = e.boss ? e.name : `${e.name}`;
       t.text(x + 3, y, label, e.boss ? e.color : C.light, undefined, x + 16);
@@ -582,12 +611,34 @@ export class PlayScreen implements Screen {
           i < fillN ? "█" : "░",
           i < fillN ? (e.boss ? e.color : C.red) : C.dark,
         );
-      const status = e.windup ? "!" : e.stun > 0 ? "*" : e.down > 0 ? "_" : !e.awake ? "z" : "";
+      const status = e.windup
+        ? "!"
+        : e.stun > 0
+          ? "*"
+          : e.down > 0
+            ? "_"
+            : e.held
+              ? "/"
+              : !e.awake
+                ? "z"
+                : "";
       t.text(x + 30, y, status, e.windup ? C.red : C.yellow);
       y++;
     }
     const d = AREAS[g.area.id];
-    if (d.boss && g.s.flags[BOSSES[d.boss].flag])
+    const bout = g.boutInfo();
+    if (bout) {
+      const bet = bout.wager ? `  bet $${bout.wager}` : "";
+      t.text(x + 1, 35, bout.name, C.yellow, undefined, x + SIDE_W);
+      t.text(
+        x + 1,
+        36,
+        `Round ${bout.round} of ${bout.rounds}${bet}`,
+        C.yellow,
+        undefined,
+        x + SIDE_W,
+      );
+    } else if (d.boss && g.s.flags[BOSSES[d.boss].flag])
       t.text(x + 1, 36, `${BOSSES[d.boss].name} beaten`, C.dim);
   }
 
@@ -598,7 +649,8 @@ export class PlayScreen implements Screen {
     for (let i = g.s.log.length - 1; i >= 0 && rows.length < LOG_H; i--) {
       const l = g.s.log[i];
       const recent = l.turn >= g.s.turn - 1;
-      const lines = Term_wrap(l.text, MAP_W - 2);
+      const text = l.count && l.count > 1 ? `${l.text} (x${l.count})` : l.text;
+      const lines = Term_wrap(text, MAP_W - 2);
       for (let k = lines.length - 1; k >= 0 && rows.length < LOG_H; k--)
         rows.unshift({ text: lines[k], color: recent ? l.color : C.gray });
     }
@@ -606,22 +658,118 @@ export class PlayScreen implements Screen {
   }
 
   private drawHints(t: Term, now: number): void {
+    const g = this.game;
     if (this.pending) {
       const what = { punch: "Punch", kick: "Kick", tech: "Special", throw: "Throw", item: "Throw" }[
         this.pending.kind
       ];
-      const msg = `${what}: which direction? (QWE/ASD/ZXC, arrows or numpad - press again for facing - Esc cancels)`;
+      const msg = `${what}: which direction? (movement keys - press again for the way you face - Esc cancels)`;
       t.text(0, HINT_Y, msg, Math.floor(now / 400) % 2 ? C.yellow : C.amber, undefined, MAP_W);
       return;
     }
-    t.text(
-      0,
-      HINT_Y,
-      "QWE/ASD/ZXC move  J/K punch/kick  1-9 specials  G grab  T throw  I pockets  ? help",
-      C.gray,
-      undefined,
-      MAP_W,
-    );
+    // A passing hint shows for a few seconds.
+    if (g.hint && g.hint.serial !== this.hintShown.serial)
+      this.hintShown = { serial: g.hint.serial, at: now };
+    if (g.hint && now - this.hintShown.at < 3000) {
+      t.text(0, HINT_Y, g.hint.text, C.amber, undefined, MAP_W);
+      return;
+    }
+    const k = (a: Parameters<typeof keyName>[0]) => keyName(a);
+    const keys = settings.keys;
+    const moves = [keys.upLeft[0], keys.up[0], keys.upRight[0]].map(k).join("");
+    const hint = `${moves}.. move  ${k(keys.punch[0])}/${k(keys.kick[0])} punch/kick  1-9 specials  ${k(keys.grab[0])} grab  ${k(keys.throw[0])} throw  ${k(keys.pockets[0])} pockets  ${k(keys.help[0])} help`;
+    t.text(0, HINT_Y, hint, C.gray, undefined, MAP_W);
+  }
+
+  /** What's under the mouse, in a small box by the pointer. */
+  private drawInfoBox(t: Term): void {
+    const m = this.mouse;
+    if (!m || m.x >= MAP_W || m.y >= MAP_H || this.app.top() !== this) return;
+    const lines = this.describeAt(m.x + this.camX, m.y + this.camY);
+    if (lines.length === 0) return;
+    const w = Math.min(44, Math.max(...lines.map((l) => l.text.length)) + 4);
+    const h = lines.length + 2;
+    const bx = m.x + 2 + w <= MAP_W ? m.x + 2 : Math.max(0, m.x - w - 1);
+    const by = Math.min(MAP_H - h, Math.max(0, m.y - 1));
+    t.box(bx, by, w, h, C.dim);
+    lines.forEach((l, i) => t.text(bx + 2, by + 1 + i, l.text, l.color, undefined, bx + w - 1));
+  }
+
+  private describeAt(x: number, y: number): { text: string; color: string }[] {
+    const g = this.game;
+    const a = g.area;
+    if (x < 0 || y < 0 || x >= a.w || y >= a.h || !a.seen[y * a.w + x]) return [];
+    const visible = g.visible[y * a.w + x] === 1;
+    const out: { text: string; color: string }[] = [];
+    const p = g.player;
+    if (p.x === x && p.y === y) {
+      out.push({ text: `${p.name} (you)`, color: C.yellow });
+      out.push({ text: `HP ${p.hp}/${g.maxHp()}  Guts ${p.guts}/${g.maxGuts()}`, color: C.light });
+      if (p.held) out.push({ text: `Holding a ${OBJECTS[p.held].name}`, color: C.gray });
+      return out;
+    }
+    const e = visible ? g.enemyAt(x, y) : undefined;
+    if (e) {
+      out.push({ text: `${e.name}, ${e.title}`, color: e.color });
+      out.push({ text: `HP ${e.hp}/${e.maxHp}`, color: C.light });
+      const s = e.stats;
+      out.push({
+        text: `PUN ${s.punch} KIK ${s.kick} AGI ${s.agility} DEF ${s.defense}`,
+        color: C.gray,
+      });
+      const notes: string[] = [];
+      if (e.windup) notes.push("winding up a big hit!");
+      if (e.stun > 0) notes.push("stunned");
+      if (e.down > 0) notes.push("knocked down");
+      if (!e.awake) notes.push("hasn't noticed you");
+      if (e.held) notes.push(`holding a ${OBJECTS[e.held].name}`);
+      if (notes.length) out.push({ text: notes.join(", "), color: e.windup ? C.red : C.amber });
+      return out;
+    }
+    if (visible) {
+      for (const it of a.items.filter((i) => i.x === x && i.y === y)) {
+        if (it.kind === "cash") out.push({ text: `$${it.amount}`, color: C.gold });
+        else if (it.kind === "object")
+          out.push({
+            text: `A ${OBJECTS[it.id].name} (grab it, then swing or throw)`,
+            color: C.light,
+          });
+        else out.push({ text: `${ITEMS[it.id].name} (walk over it to pocket it)`, color: C.lime });
+      }
+    }
+    const shopId = a.doors.get(y * a.w + x);
+    if (shopId) {
+      const shop = SHOPS[shopId];
+      const kinds: Record<string, string> = {
+        food: "Restaurant - food raises stats",
+        store: "Store - things to carry",
+        gear: "Gear - worn for stat bonuses",
+        books: "Bookstore - training manuals",
+        gym: "Gym - special moves and training",
+        service: "Services",
+        vendor: "Street vendor",
+        arena: "Underground fight club",
+      };
+      out.push({ text: shop.name, color: shop.color });
+      out.push({ text: kinds[shop.kind] ?? "", color: C.gray });
+      const special = g.specialOf(shopId);
+      if (special) out.push({ text: `Today's special: ${ITEMS[special].name}`, color: C.lime });
+      return out;
+    }
+    const tile = a.tiles[y * a.w + x];
+    if (tile === T.EXIT) {
+      const exit = a.exits.find((ex) => ex.x === x && ex.y === y);
+      const to = exit?.to ? AREAS[exit.to]?.name : undefined;
+      const lock = exit ? AREAS[a.id].locked?.[exit.marker] : undefined;
+      out.push({ text: to ? `Way to ${to}` : "Way out", color: C.cyan });
+      if (lock && !g.s.flags[lock])
+        out.push({ text: "Blocked until the boss is beaten", color: C.red });
+      return out;
+    }
+    if (out.length === 0) out.push({ text: TILES[tile].name, color: C.gray });
+    if (TILES[tile].hazard && out.length === 1)
+      out.push({ text: "Knock enemies in for an instant KO!", color: C.cyan });
+    return out;
   }
 
   overlay(ctx: CanvasRenderingContext2D, t: Term, now: number): void {
@@ -647,11 +795,6 @@ export class PlayScreen implements Screen {
       ctx.fillText(p.text, px, py);
     }
     ctx.globalAlpha = 1;
-  }
-
-  /** The cash the player lost on the last knock-out (shown on the notice). */
-  get lostCash(): number {
-    return this.knockedOutCash;
   }
 }
 

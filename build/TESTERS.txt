@@ -1,8 +1,25 @@
-RUMBLE ROW - EARLY TEST BUILD (please read me)
-==============================================
+RUMBLE ROW 0.2 - EARLY TEST BUILD (please read me)
+==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.2
+----------
+- The game saves as you play and when you close the window - no more lost progress.
+- 3 save slots, with automatic backups. A damaged save loads its newest backup instead.
+- Settings: sound volume, text size, screen shake, fullscreen, and change any key.
+- Controller support (Xbox-style pads): plug one in and play.
+- Easy / Normal / Hard difficulty.
+- Hidden fight clubs in every town (look for a red ! door). Bet on yourself, win purses,
+  and take the title belts from three champions.
+- Gang members now pick up pipes, bats and trash cans and use them on you.
+- Daily specials: every restaurant has one dish at 40% off, changing each visit.
+- Point the mouse at anything to see what it is (enemy health, today's special...).
+- Records screen with your best runs, and "Copy a bug report" in the Esc menu.
+- Bigger hits shake the screen; whoever hits you flashes orange.
+- Your 0.1 save carries over into slot 1.
 
 
 STARTING THE GAME
@@ -21,7 +38,7 @@ Windows may say "Windows protected your PC", because the game isn't signed yet. 
 
 HOW TO PLAY
 -----------
-Press ? in the game for every control. The basics:
+Press ? in the game for every control (keys can be changed in Settings). The basics:
 
   Q W E / A D / Z X C ... move (diagonals too), or arrow keys / numpad
   S ..................... wait a turn
@@ -32,6 +49,9 @@ Press ? in the game for every control. The basics:
   I ..................... pockets (snacks, bandages, firecrackers)
   R ..................... rest      Esc ... menu      F11 ... fullscreen
 
+Controller: stick or d-pad moves, A punch, B kick, X special, Y guard, LB wait,
+RB next special, LT grab, RT throw, View pockets, Menu button for the menu.
+
 Walk into a shop door to go in. Food heals you AND permanently raises your stats, but each
 dish only helps up to a point - so try the menus in every new town. Gyms teach special moves.
 
@@ -41,12 +61,13 @@ swings first - the square they're aiming at flashes red. Step away or guard!
 
 YOUR SAVES
 ----------
-The game saves itself each time you enter a new area, and when you choose Save & Quit from the
-Esc menu. Saves live in %APPDATA%\RumbleRow\Saves. Deleting or moving the game never touches
-them.
+Saves live in %APPDATA%\RumbleRow\Saves (one file per slot, plus a Backups folder).
+Deleting or moving the game never touches them.
 
 
 REPORTING A PROBLEM
 -------------------
-Say what you were doing, what went wrong, and which area you were in (its name is at the top
-left of the map). Also handy: how far you got, how long it took, and where it felt unfair.
+1. Press Esc in the game and choose "Copy a bug report", then paste it into your message.
+2. Say what you were doing and what went wrong.
+
+Also handy: how far you got, how long it took, which difficulty, and where it felt unfair.

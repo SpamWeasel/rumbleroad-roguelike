@@ -10,7 +10,15 @@ import { TECHNIQUES } from "../src/game/data/techniques";
 import { Game } from "../src/game/game";
 import { canStep, distanceMap } from "../src/game/grid";
 import { T, walkable } from "../src/game/tiles";
-import { ALL_STATS, type AnyStat, DIRS8, type Dir, type Enemy, STAT_KEYS } from "../src/game/types";
+import {
+  ALL_STATS,
+  type AnyStat,
+  DIRS8,
+  type Difficulty,
+  type Dir,
+  type Enemy,
+  STAT_KEYS,
+} from "../src/game/types";
 import { AREAS } from "../src/game/world";
 
 export interface RunReport {
@@ -36,8 +44,12 @@ export interface RunReport {
 const cheb = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 
-export function playGame(seed: number, maxTurns = 60000): RunReport {
-  const g = Game.create("Bot", "street", seed);
+export function playGame(
+  seed: number,
+  maxTurns = 60000,
+  difficulty: Difficulty = "normal",
+): RunReport {
+  const g = Game.create("Bot", "street", seed, difficulty);
   const r: RunReport = {
     seed,
     turns: 0,

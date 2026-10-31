@@ -143,6 +143,11 @@ const items: ItemDef[] = [
   { id: "popsicle", name: "Rocket Pop", kind: "tonic", price: 2, heal: 5, flavor: "Red, white and blue brain freeze." },
   { id: "knockoffs", name: "Knock-off Sneakers", kind: "gear", slot: "feet", price: 90, stats: { agility: 4, kick: 1 }, flavor: "'Nikes'. Totally real." },
   { id: "chainwallet", name: "Chain Wallet", kind: "gear", slot: "charm", price: 70, stats: { guts: 2, defense: 2 }, flavor: "Jingles menacingly." },
+
+  // ---- Fight club championship prizes (never sold) ----
+  { id: "goldengloves", name: "Golden Gloves", kind: "gear", slot: "hands", price: 300, stats: { punch: 6, kick: 2 }, flavor: "Won fair and square in the Maple Street ring." },
+  { id: "anchorbelt", name: "Anchor Belt", kind: "gear", slot: "charm", price: 600, stats: { guts: 5, strength: 4, defense: 3 }, flavor: "The Harbor Hammer's old title belt." },
+  { id: "neonjacket", name: "Neon Champion Jacket", kind: "gear", slot: "body", price: 1200, stats: { defense: 14, agility: 3 }, flavor: "It glows. Everyone knows who you are." },
 ];
 
 export const ITEMS: Record<string, ItemDef> = Object.fromEntries(items.map((i) => [i.id, i]));

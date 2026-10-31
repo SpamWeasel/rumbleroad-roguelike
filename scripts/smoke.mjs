@@ -7,7 +7,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
-const SCENES = ["title", "game", "shop"];
+const SCENES = ["keys", "title", "settings", "game", "shop", "arena", "bout", "saves"];
 
 const outDir = resolve(".smoke");
 rmSync(outDir, { recursive: true, force: true });

@@ -88,6 +88,7 @@ export class ShopScreen implements Screen {
     // Purchases make sounds through the game's events.
     for (const ev of g.events) if (ev.type === "sound") this.app.sound(ev.id);
     g.events.length = 0;
+    void this.app.save();
   }
 
   draw(t: Term): void {
@@ -148,7 +149,7 @@ export class ShopScreen implements Screen {
       const yy = y0 + i;
       const sel = i === this.cursor;
       const item = line.item;
-      const afford = g.player.cash >= item.price;
+      const afford = g.player.cash >= line.price;
       const dim = line.soldOut || !afford;
       if (sel) t.fill(x + 1, yy, w - 2, 1, " ", C.light, C.dark);
       t.text(x + 2, yy, sel ? "►" : " ", C.yellow, sel ? C.dark : undefined);
@@ -163,14 +164,16 @@ export class ShopScreen implements Screen {
       t.text(
         x + 29,
         yy,
-        line.soldOut ? "SOLD" : item.price === 0 ? "free" : `$${item.price}`,
+        line.soldOut ? "SOLD" : line.price === 0 ? "free" : `$${line.price}`,
         line.soldOut ? C.dim : afford ? C.gold : C.red,
       );
       // A mark after the name for things you can carry away; the detail below explains it.
       if (item.takeout || item.kind === "tonic")
         t.text(x + 4 + Math.min(item.name.length, 23) + 1, yy, "*", C.dim);
       const eff = line.noGain ? "(you've outgrown it)" : line.effect;
-      t.text(x + 35, yy, eff, line.noGain ? C.dim : C.lime, undefined, x + w - 1);
+      let ex = x + 35;
+      if (line.special) ex = t.text(ex, yy, "SALE", C.black, C.lime) + 1;
+      t.text(ex, yy, eff, line.noGain ? C.dim : C.lime, undefined, x + w - 1);
     });
     const sel = lines[this.cursor];
     if (!sel) return;
@@ -186,6 +189,13 @@ export class ShopScreen implements Screen {
     t.text(t.text(x + 2, yy, sel.item.name, this.shop.color), yy++, tag, C.gray);
     for (const l of Term.wrap(`${sel.effect}.`, w - 6)) t.text(x + 4, yy++, l, C.lime);
     for (const l of Term.wrap(sel.item.flavor, w - 6)) t.text(x + 4, yy++, l, C.light);
+    if (sel.special)
+      t.text(
+        x + 4,
+        yy++,
+        `Today's special: 40% off (usually $${sel.item.price}). Changes next visit.`,
+        C.lime,
+      );
     if (sel.item.kind === "gear" && sel.item.slot) {
       const cur = g.player.gear[sel.item.slot];
       t.text(
