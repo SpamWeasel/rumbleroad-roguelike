@@ -123,6 +123,8 @@ export interface Player extends Fighter {
   /** Temporary boosts from tonics: stat bonus and turns left. */
   buffs: { stats: StatBonus; turns: number; name: string }[];
   kos: number;
+  /** Hits in a row on one foe, for combo finishers (enemy id, count, turn of the last hit). */
+  combo?: { id: number; n: number; turn: number };
   /** Turns since the last health/guts trickle. */
   regenClock: number;
 }
@@ -156,6 +158,8 @@ export interface Enemy extends Fighter {
   job?: string;
   /** Part of a street event ("shakedown", "ambush", "rival"). */
   event?: string;
+  /** Your partner (a PARTNERS id): fights on your side. */
+  ally?: string;
 }
 
 export type GroundItem =

@@ -1,8 +1,21 @@
-RUMBLE ROW 0.3 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.4 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.4 - "CREW"
+-------------------
+- Partners: every gym has a fighter who'll team up with you (gym > Partner tab). They follow
+  you, fight beside you and grow as you do. They keep 10% of what the gangs drop, and if
+  they're knocked out they meet you in the next town. One partner at a time.
+- Combos: three punches or kicks in a row on the same foe end in a COMBO finisher that knocks
+  them flying and down.
+- New Game+: beat Duke Varga and start a new city with everything you've earned. The gangs come
+  back much tougher each round.
+- Character sheet (press P): your stats and where they come from, moves, partner and records.
+- Your 0.3 save carries over.
 
 
 NEW IN 0.3 - "STREET LIFE"
@@ -61,7 +74,7 @@ Press ? in the game for every control (keys can be changed in Settings). The bas
   Space ................. guard
   G / T ................. pick up / throw crates, trash cans, pipes...
   I ..................... pockets (snacks, bandages, firecrackers)
-  R ..................... rest      O ..... your jobs
+  R ..................... rest      O ..... your jobs      P ... character sheet
   Esc ................... menu      F11 ... fullscreen
 
 Controller: stick or d-pad moves, A punch, B kick, X special, Y guard, LB wait,

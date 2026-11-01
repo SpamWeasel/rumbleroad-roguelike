@@ -463,3 +463,129 @@ describe("0.3 features", () => {
     expect(loaded.s.rival.wins).toBe(0);
   });
 });
+
+describe("0.4 features", () => {
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    knockOut(e: Enemy): void;
+    damage(f: unknown, n: number): void;
+    enemyAct(e: Enemy): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+  const hired = (seed: number) => {
+    const g = Game.create("Pal", "street", seed);
+    g.player.cash = 500;
+    expect(g.hirePartner("ironside").ok).toBe(true);
+    return g;
+  };
+
+  it("a hired partner stands beside you, follows you and can't be hit by you", () => {
+    const g = hired(21);
+    expect(g.player.cash).toBe(500 - 100);
+    const pal = g.ally() as Enemy;
+    expect(Math.max(Math.abs(pal.x - g.player.x), Math.abs(pal.y - g.player.y))).toBe(1);
+    expect(g.enemyAt(pal.x, pal.y)).toBeUndefined();
+    expect(g.visibleEnemies()).not.toContain(pal);
+    inside(g).enterArea("alleys", "<");
+    expect(g.ally()).toBeDefined();
+    expect(g.area.enemies.filter((e) => e.ally).length).toBe(1);
+    // Walking into them swaps places.
+    const a = g.ally() as Enemy;
+    const [px, py] = [g.player.x, g.player.y];
+    const [ax, ay] = [a.x, a.y];
+    g.move(Math.sign(ax - px), Math.sign(ay - py));
+    expect([g.player.x, g.player.y]).toEqual([ax, ay]);
+  });
+
+  it("partners fight gang members next to them and take a cut", () => {
+    const g = hired(22);
+    inside(g).enterArea("alleys", "<");
+    const pal = g.ally() as Enemy;
+    const foe = g.area.enemies.find((e) => !e.ally) as Enemy;
+    foe.x = pal.x + 1;
+    foe.y = pal.y;
+    foe.awake = true;
+    const hp = foe.hp;
+    for (let i = 0; i < 12 && foe.hp === hp && g.area.enemies.includes(foe); i++)
+      inside(g).enemyAct(pal);
+    expect(foe.hp < hp || !g.area.enemies.includes(foe)).toBe(true);
+    const other = g.area.enemies.find((e) => !e.ally && e !== foe && e.cash >= 5) as Enemy;
+    const cash = g.player.cash;
+    const loot = other.cash;
+    inside(g).knockOut(other);
+    expect(g.player.cash - cash).toBe(loot - Math.round(loot * 0.1));
+  });
+
+  it("a knocked-out partner rejoins you in town, and saves keep exactly one", () => {
+    const g = hired(23);
+    inside(g).enterArea("alleys", "<");
+    inside(g).damage(g.ally(), 9999);
+    expect(g.ally()).toBeUndefined();
+    expect(g.s.partner?.out).toBe(true);
+    expect(g.ally()).toBeUndefined();
+    inside(g).enterArea("maple", ">");
+    expect(g.s.partner?.out).toBe(false);
+    expect(g.ally()?.hp).toBe(g.ally()?.maxHp);
+    const loaded = Game.load(g.save());
+    expect(loaded.area.enemies.filter((e) => e.ally).length).toBe(1);
+  });
+
+  it("partners wait outside the ring and come back after a bout", () => {
+    const g = hired(24);
+    g.startBout("club_maple", 0, 0);
+    expect(g.ally()).toBeUndefined();
+    g.forfeitBout();
+    expect(g.ally()).toBeDefined();
+  });
+
+  it("three hits in a row on one foe make a combo finisher", () => {
+    const g = Game.create("Combo", "street", 25);
+    inside(g).enterArea("alleys", "<");
+    const foe = g.area.enemies[0];
+    foe.x = g.player.x + 1;
+    foe.y = g.player.y;
+    foe.maxHp = foe.hp = 999;
+    foe.stats.defense = 1;
+    for (let i = 0; i < 3; i++) {
+      foe.stun = 5; // can't dodge, can't hit back
+      foe.x = g.player.x + 1;
+      foe.y = g.player.y;
+      g.punch([1, 0]);
+    }
+    expect(g.s.log.some((l) => l.text.includes("COMBO FINISHER"))).toBe(true);
+    expect(g.player.combo).toBeUndefined();
+  });
+
+  it("New Game+ keeps your progress and toughens the gangs", () => {
+    const first = Game.create("Champ", "street", 26);
+    first.player.base.punch = 50;
+    first.player.techniques = ["haymaker"];
+    first.player.gear.hands = "goldengloves";
+    first.s.flags.title_club_maple = true;
+    const plus = Game.newGamePlus(first, 27);
+    expect(plus.s.plus).toBe(1);
+    expect(plus.player.base.punch).toBe(50);
+    expect(plus.player.techniques).toEqual(["haymaker"]);
+    expect(plus.player.gear.hands).toBe("goldengloves");
+    expect(plus.s.flags.title_club_maple).toBe(true);
+    expect(plus.s.flags.gnash).toBeUndefined();
+    const fresh = Game.create("Champ", "street", 27);
+    inside(fresh).enterArea("alleys", "<");
+    inside(plus).enterArea("alleys", "<");
+    const hp = (g: Game) => g.area.enemies.reduce((n, e) => n + e.maxHp, 0) / g.area.enemies.length;
+    expect(hp(plus)).toBeGreaterThan(hp(fresh) * 1.4);
+  });
+
+  it("loads saves from 0.3 with no partner", () => {
+    const g = Game.create("Old", "street", 28);
+    const old = JSON.parse(g.save());
+    old.version = 3;
+    delete old.partner;
+    delete old.plus;
+    delete old.tally;
+    const loaded = Game.load(JSON.stringify(old));
+    expect(loaded.s.partner).toBeNull();
+    expect(loaded.s.plus).toBe(0);
+    expect(loaded.s.tally.jobs).toBe(0);
+  });
+});

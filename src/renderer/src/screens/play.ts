@@ -3,6 +3,7 @@ import { BOSSES } from "../../../game/data/enemies";
 import { ITEMS } from "../../../game/data/items";
 import { BYSTANDERS } from "../../../game/data/jobs";
 import { OBJECTS } from "../../../game/data/objects";
+import { PARTNER_GLYPH, PARTNERS } from "../../../game/data/partners";
 import { SHOPS } from "../../../game/data/shops";
 import { TECHNIQUES } from "../../../game/data/techniques";
 import type { Game } from "../../../game/game";
@@ -17,6 +18,7 @@ import { ACTION_DIR, actionFor, keyName, settings } from "../settings";
 import type { Term } from "../term";
 import { ArenaScreen } from "./arena";
 import { BoardScreen, JobsScreen } from "./board";
+import { CharacterScreen } from "./character";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
 import { ShopScreen } from "./shop";
@@ -132,6 +134,9 @@ export class PlayScreen implements Screen {
         return;
       case "jobs":
         this.app.push(new JobsScreen(this.app));
+        return;
+      case "sheet":
+        this.app.push(new CharacterScreen(this.app));
         return;
       case "help":
         this.app.push(new HelpScreen(this.app));
@@ -542,6 +547,25 @@ export class PlayScreen implements Screen {
     bar(t, x + 1, y++, "GUTS", p.guts, g.maxGuts(), C.amber, SIDE_W - 2);
     t.text(x + 1, y, `$${p.cash}`, C.gold);
     t.text(x + 17, y++, `KOs ${p.kos}`, C.light);
+    if (g.s.partner) {
+      const pal = g.ally();
+      const def = PARTNERS[g.s.partner.id];
+      t.put(x + 1, y, PARTNER_GLYPH, def.color);
+      t.text(x + 3, y, def.name, def.color, undefined, x + 17);
+      if (pal) {
+        const w = 12;
+        const fillN = Math.max(0, Math.round((pal.hp / pal.maxHp) * w));
+        for (let i = 0; i < w; i++)
+          t.put(x + 17 + i, y, i < fillN ? "█" : "░", i < fillN ? C.green : C.dark);
+      } else
+        t.text(
+          x + 17,
+          y,
+          g.s.partner.out ? "out cold" : g.area.kind === "arena" ? "cheering" : "",
+          C.gray,
+        );
+      y++;
+    }
     line();
     for (let r = 0; r < 3; r++) {
       for (let c = 0; c < 2; c++) {
@@ -697,6 +721,18 @@ export class PlayScreen implements Screen {
       t.text(0, HINT_Y, g.hint.text, C.amber, undefined, MAP_W);
       return;
     }
+    const c = g.player.combo;
+    if (c && c.turn >= g.s.turn - 1 && g.area.enemies.some((e) => e.id === c.id)) {
+      t.text(
+        0,
+        HINT_Y,
+        `COMBO x${c.n}  - hit the same foe again (punch or kick) for a finisher!`,
+        C.yellow,
+        undefined,
+        MAP_W,
+      );
+      return;
+    }
     const k = (a: Parameters<typeof keyName>[0]) => keyName(a);
     const keys = settings.keys;
     const moves = [keys.upLeft[0], keys.up[0], keys.upRight[0]].map(k).join("");
@@ -729,6 +765,13 @@ export class PlayScreen implements Screen {
       out.push({ text: `${p.name} (you)`, color: C.yellow });
       out.push({ text: `HP ${p.hp}/${g.maxHp()}  Guts ${p.guts}/${g.maxGuts()}`, color: C.light });
       if (p.held) out.push({ text: `Holding a ${OBJECTS[p.held].name}`, color: C.gray });
+      return out;
+    }
+    const pal = g.ally();
+    if (pal && visible && pal.x === x && pal.y === y) {
+      out.push({ text: `${pal.name}, your partner`, color: pal.color });
+      out.push({ text: `HP ${pal.hp}/${pal.maxHp}`, color: C.light });
+      out.push({ text: "Walk into them to swap places.", color: C.gray });
       return out;
     }
     const e = visible ? g.enemyAt(x, y) : undefined;

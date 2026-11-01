@@ -382,6 +382,11 @@ export function parseStatic(map: string, doors: Record<string, string> = {}): St
 
 let nextEnemyId = 1;
 
+/** A fresh id for a fighter made outside the area builder (partners). */
+export function newEnemyId(): number {
+  return nextEnemyId++;
+}
+
 /** After loading a save, new enemies get ids above every existing one. */
 export function reserveEnemyIds(above: number): void {
   nextEnemyId = Math.max(nextEnemyId, above + 1);

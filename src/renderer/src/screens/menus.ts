@@ -20,6 +20,7 @@ import {
 import { appInfo, copyText, deleteSlot, listSlots, readSlot } from "../storage";
 import { COLS, ROWS, Term } from "../term";
 import { JobsScreen } from "./board";
+import { CharacterScreen } from "./character";
 import { PlayScreen } from "./play";
 
 const LOGO = String.raw`
@@ -703,6 +704,7 @@ export class HelpScreen implements Screen {
         "GYMS",
         "Gyms teach new special moves and train any stat for cash. Bookstores sell manuals.",
       ],
+      ["", "Each gym also has a fighter who'll team up with you as a partner (one at a time)."],
       [
         "CLUBS",
         "Each town hides a fight club (a red ! door). Bet on yourself, win purses and title belts.",
@@ -712,17 +714,19 @@ export class HelpScreen implements Screen {
         `Job boards (yellow ≡ doors) post bounties, clean-ups and deliveries. ${k("jobs")} lists yours.`,
       ],
       ["", "On the streets, rescue people being shaken down - and watch out for your rival, Dex."],
-      ["", ""],
       [
         "TACTICS",
         "Knock foes into walls (SLAM), into each other, or into the water for an instant KO.",
+      ],
+      [
+        "",
+        `Three punches or kicks in a row on one foe make a COMBO finisher. ${k("sheet")}: character sheet.`,
       ],
       ["", "Big guys wind up huge swings - the target square flashes red. Step away or guard!"],
       [
         "GOAL",
         "Fight east through the city, beat each gang boss, and take down Duke Varga in Crown Tower.",
       ],
-      ["", ""],
       ["SAVING", "The game saves itself as you play, and when you close the window. 3 save slots."],
     ];
     t.box(4, 2, 102, 31, C.yellow, "How to Play");
@@ -745,6 +749,7 @@ export class MenuScreen implements Screen {
     const inBout = !!this.app.game?.s.bout;
     return [
       "Resume",
+      "Character Sheet",
       "Your Jobs",
       "Settings",
       "How to Play",
@@ -768,6 +773,7 @@ export class MenuScreen implements Screen {
       if (o !== "Forfeit the bout") this.armedForfeit = false;
       if (o === "Resume") this.app.pop();
       else if (o === "Your Jobs") this.app.push(new JobsScreen(this.app));
+      else if (o === "Character Sheet") this.app.push(new CharacterScreen(this.app));
       else if (o === "Settings") this.app.push(new SettingsScreen(this.app));
       else if (o === "How to Play") this.app.push(new HelpScreen(this.app));
       else if (o === "Copy a bug report") {
@@ -893,13 +899,28 @@ export class NoticeScreen implements Screen {
 }
 
 export class EndScreen implements Screen {
+  /** After a win: 0 = New Game+, 1 = back to the title. */
+  private choice = 0;
+
   constructor(
     private app: App,
     private how: "dead" | "won",
   ) {}
 
   key(e: KeyboardEvent): void {
+    const won = this.how === "won";
+    if (won && (isLeft(e) || isRight(e) || isUp(e) || isDown(e))) {
+      this.choice = 1 - this.choice;
+      return;
+    }
+    if (e.code === "Escape") this.choice = 1;
     if (e.code === "Enter" || e.code === "NumpadEnter" || e.code === "Escape") {
+      const g = this.app.game;
+      if (won && this.choice === 0 && g) {
+        const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+        startGame(this.app, Game.newGamePlus(g, seed), this.app.slot);
+        return;
+      }
       this.app.game = null;
       this.app.reset(new TitleScreen(this.app));
     }
@@ -950,6 +971,22 @@ export class EndScreen implements Screen {
       t.text(30, 12 + i * 2, k, C.gray);
       t.text(62, 12 + i * 2, v, C.white);
     });
-    t.center(28, "Your run is in the Records. Press Enter to return to the title.", C.dim, 14, 82);
+    if (!won) {
+      t.center(
+        28,
+        "Your run is in the Records. Press Enter to return to the title.",
+        C.dim,
+        14,
+        82,
+      );
+      return;
+    }
+    const plus = (g.s.plus ?? 0) + 1;
+    const opts = [`New Game+ ${plus}: keep everything, tougher gangs`, "Back to the title"];
+    let ox = 20;
+    opts.forEach((o, i) => {
+      const sel = i === this.choice;
+      ox = t.text(ox, 28, `${sel ? "► " : "  "}${o}`, sel ? C.yellow : C.gray) + 4;
+    });
   }
 }

@@ -1,5 +1,6 @@
 import { C } from "../../../game/colors";
 import { ITEMS } from "../../../game/data/items";
+import { PARTNER_BY_GYM, PARTNER_CUT, PARTNERS } from "../../../game/data/partners";
 import { SHOPS, type ShopDef } from "../../../game/data/shops";
 import { TECHNIQUES } from "../../../game/data/techniques";
 import { describeBonus, type Game, POCKET_SIZE } from "../../../game/game";
@@ -8,7 +9,7 @@ import type { App, Screen } from "../app";
 import { isBack, isDown, isUp } from "../input";
 import { Term } from "../term";
 
-type Tab = "buy" | "tech" | "train";
+type Tab = "buy" | "tech" | "train" | "partner";
 
 const BOX = { x: 2, y: 1, w: 72, h: 24 };
 
@@ -27,7 +28,12 @@ export class ShopScreen implements Screen {
   ) {
     this.shop = SHOPS[shopId];
     this.tabs = this.shop.gym
-      ? ["tech", "train", ...(this.shop.stock.length ? (["buy"] as Tab[]) : [])]
+      ? [
+          "tech",
+          "train",
+          ...(PARTNER_BY_GYM[this.shop.id] ? (["partner"] as Tab[]) : []),
+          ...(this.shop.stock.length ? (["buy"] as Tab[]) : []),
+        ]
       : ["buy"];
     this.tab = this.tabs[0];
     this.message = this.shop.greet;
@@ -40,6 +46,7 @@ export class ShopScreen implements Screen {
   private rows(): number {
     if (this.tab === "buy") return this.shop.stock.length;
     if (this.tab === "tech") return this.shop.gym?.techniques.length ?? 0;
+    if (this.tab === "partner") return this.partnerRows().length;
     return ALL_STATS.length;
   }
 
@@ -82,6 +89,18 @@ export class ShopScreen implements Screen {
       this.say(g.buy(this.shop.id, id, bag));
     } else if (this.tab === "tech") {
       this.say(g.learn(this.shop.id, this.shop.gym?.techniques[this.cursor] ?? ""));
+    } else if (this.tab === "partner") {
+      const row = this.partnerRows()[this.cursor];
+      if (row === "hire") this.say(g.hirePartner(this.shop.id));
+      else if (row === "dismiss") {
+        const name = g.s.partner ? PARTNERS[g.s.partner.id].name : "";
+        g.dismissPartner();
+        this.say({
+          ok: true,
+          message: `${name} heads home. You can hire a partner again any time.`,
+        });
+      }
+      this.cursor = Math.min(this.cursor, this.partnerRows().length - 1);
     } else {
       this.say(g.train(this.shop.id, ALL_STATS[this.cursor]));
     }
@@ -114,7 +133,12 @@ export class ShopScreen implements Screen {
     if (this.tabs.length > 1) {
       let tx = x + 2;
       for (const tab of this.tabs) {
-        const label = { buy: " Services ", tech: " Techniques ", train: " Training " }[tab];
+        const label = {
+          buy: " Services ",
+          tech: " Techniques ",
+          train: " Training ",
+          partner: " Partner ",
+        }[tab];
         tx =
           t.text(
             tx,
@@ -129,6 +153,7 @@ export class ShopScreen implements Screen {
     }
     if (this.tab === "buy") this.drawStock(t, ty);
     else if (this.tab === "tech") this.drawTechniques(t, ty);
+    else if (this.tab === "partner") this.drawPartner(t, ty);
     else this.drawTraining(t, ty);
     const foot =
       this.tab === "buy"
@@ -137,7 +162,9 @@ export class ShopScreen implements Screen {
           : "↑↓ choose   Enter buy   Esc leave"
         : this.tab === "tech"
           ? "↑↓ choose   Enter learn   Tab switch   Esc leave"
-          : "↑↓ choose   Enter train   Tab switch   Esc leave";
+          : this.tab === "partner"
+            ? "↑↓ choose   Enter pick   Tab switch   Esc leave"
+            : "↑↓ choose   Enter train   Tab switch   Esc leave";
     t.text(x + 2, y + h - 2, foot, C.gray);
   }
 
@@ -231,7 +258,7 @@ export class ShopScreen implements Screen {
       t.text(x + 4, yy, tech.name, blocker === "Learned" ? C.dim : C.white);
       t.text(x + 22, yy, `${tech.guts} guts`, C.amber);
       const price = g.techPrice(id);
-      t.text(x + 32, yy, `${price}`, g.player.cash >= price ? C.gold : C.red);
+      t.text(x + 32, yy, `$${price}`, g.player.cash >= price ? C.gold : C.red);
       t.text(
         x + 40,
         yy,
@@ -267,6 +294,57 @@ export class ShopScreen implements Screen {
       undefined,
       x + w - 1,
     );
+  }
+
+  /** "hire" this gym's fighter, and "dismiss" whoever is with you now. */
+  private partnerRows(): ("hire" | "dismiss")[] {
+    const g = this.game;
+    const here = PARTNER_BY_GYM[this.shop.id];
+    const rows: ("hire" | "dismiss")[] = [];
+    if (g.s.partner?.id !== here) rows.push("hire");
+    if (g.s.partner) rows.push("dismiss");
+    return rows;
+  }
+
+  private drawPartner(t: Term, y0: number): void {
+    const g = this.game;
+    const { x, w } = BOX;
+    const def = PARTNERS[PARTNER_BY_GYM[this.shop.id] ?? ""];
+    if (!def) return;
+    const mine = g.s.partner ? PARTNERS[g.s.partner.id] : null;
+    let yy = y0;
+    this.partnerRows().forEach((row, i) => {
+      const sel = i === this.cursor;
+      if (sel) t.fill(x + 1, yy, w - 2, 1, " ", C.light, C.dark);
+      t.text(x + 2, yy, sel ? "►" : " ", C.yellow, sel ? C.dark : undefined);
+      if (row === "hire") {
+        t.text(x + 4, yy, `Team up with ${def.name}`, C.white);
+        t.text(x + 40, yy, `$${def.price}`, g.player.cash >= def.price ? C.gold : C.red);
+      } else t.text(x + 4, yy, `Send ${mine?.name ?? "your partner"} home`, C.light);
+      yy++;
+    });
+    yy++;
+    t.text(t.text(x + 2, yy, def.name, def.color) + 1, yy++, `- ${def.title}`, C.gray);
+    for (const l of Term.wrap(def.pitch, w - 6)) t.text(x + 4, yy++, l, C.light);
+    const st = g.partnerStats(def.id);
+    t.text(
+      x + 4,
+      yy++,
+      `Right now: PUN ${st.punch} KIK ${st.kick} STR ${st.strength} AGI ${st.agility} DEF ${st.defense} STA ${st.stamina}`,
+      C.lime,
+      undefined,
+      x + w - 1,
+    );
+    t.text(x + 4, yy++, `Signature move: ${def.move.name}.`, C.amber);
+    yy++;
+    const notes = [
+      "Partners follow you, fight beside you and get stronger as you do.",
+      `They keep ${Math.round(PARTNER_CUT * 100)}% of the cash the gangs drop. One partner at a time.`,
+      "Knocked out? They limp home and meet you in the next town.",
+    ];
+    for (const n of notes) for (const l of Term.wrap(n, w - 6)) t.text(x + 4, yy++, l, C.gray);
+    if (mine && mine.id !== def.id)
+      t.text(x + 4, yy++, `Hiring ${def.name} sends ${mine.name} home.`, C.orange);
   }
 
   private drawTraining(t: Term, y0: number): void {

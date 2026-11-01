@@ -3,7 +3,8 @@ import { walkable } from "../../game/tiles";
 import { App } from "./app";
 import { ArenaScreen } from "./screens/arena";
 import { BoardScreen } from "./screens/board";
-import { startGame, TitleScreen } from "./screens/menus";
+import { CharacterScreen } from "./screens/character";
+import { EndScreen, startGame, TitleScreen } from "./screens/menus";
 import { ShopScreen } from "./screens/shop";
 import { loadSettings } from "./settings";
 import { listSlots, readSlot, writeSlot } from "./storage";
@@ -77,6 +78,29 @@ async function smoke(app: App, scene: string): Promise<void> {
       play.flush();
       if (scene === "shop") app.push(new ShopScreen(app, "rosa"));
       if (scene === "arena") app.push(new ArenaScreen(app, "club_maple", play));
+      if (scene === "partner") {
+        // Ironside Gym, on the Partner tab.
+        (app.game as Game).player.cash = 300;
+        app.push(new ShopScreen(app, "ironside"));
+        for (const code of ["Tab", "Tab"])
+          window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+      }
+      if (scene === "sheet") {
+        const g = app.game as Game;
+        g.player.cash = 300;
+        g.hirePartner("ironside");
+        g.player.techniques = ["haymaker", "uppercut"];
+        g.player.gear.hands = "tgloves";
+        app.push(new CharacterScreen(app));
+      }
+      if (scene === "ending") {
+        const g = app.game as Game;
+        g.s.over = "won";
+        app.push(new EndScreen(app, "won"));
+        // New Game+ must start cleanly from a won game.
+        const plus = Game.newGamePlus(g, 99);
+        if (plus.s.plus !== 1) errors.push("New Game+ did not start");
+      }
       if (scene === "board") {
         const g = app.game as Game;
         const first = g.boardOffers("board_maple")[0];
@@ -86,6 +110,8 @@ async function smoke(app: App, scene: string): Promise<void> {
       if (scene === "street") {
         // A district with a job on the go, a shakedown and the rival about.
         const g = app.game as Game;
+        g.player.cash = 300;
+        g.hirePartner("ironside");
         for (const job of g.boardOffers("board_maple")) g.takeJob("board_maple", job.id);
         const inside = g as unknown as {
           enterArea(id: string, arrive: string): void;
@@ -110,6 +136,28 @@ async function smoke(app: App, scene: string): Promise<void> {
           if (best) {
             g.player.x = best.x;
             g.player.y = best.y;
+          }
+          const pal = g.ally();
+          const near = best
+            ? [
+                [1, 0],
+                [-1, 0],
+                [0, 1],
+                [0, -1],
+                [1, 1],
+                [-1, -1],
+                [1, -1],
+                [-1, 1],
+              ]
+                .map(([dx, dy]) => ({
+                  x: (best as { x: number }).x + dx,
+                  y: (best as { y: number }).y + dy,
+                }))
+                .find((q) => walkable(g.tileAt(q.x, q.y)) && !g.enemyAt(q.x, q.y))
+            : undefined;
+          if (pal && near) {
+            pal.x = near.x;
+            pal.y = near.y;
           }
           // Lit up so the screenshot shows everything.
           g.area.lit = true;

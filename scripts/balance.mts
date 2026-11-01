@@ -1,5 +1,5 @@
 // Plays several full games with the balance bot and prints how each one went.
-// Usage: pnpm exec tsx scripts/balance.mts [runs] [maxTurns] [difficulty] [style] [nojobs]
+// Usage: pnpm exec tsx scripts/balance.mts [runs] [maxTurns] [difficulty] [style] [jobs|nojobs] [partner|nopartner]
 import type { StyleId } from "../src/game/data/styles";
 import { playGame } from "../tests/bot";
 
@@ -8,6 +8,7 @@ const maxTurns = Number(process.argv[3] ?? 60000);
 const difficulty = (process.argv[4] ?? "normal") as "easy" | "normal" | "hard";
 const style = (process.argv[5] ?? "allround") as StyleId;
 const jobs = process.argv[6] !== "nojobs";
+const partners = process.argv[7] !== "nopartner";
 const route = [
   "maple",
   "alleys",
@@ -27,7 +28,7 @@ const route = [
 
 const reports = [];
 for (let i = 0; i < runs; i++) {
-  const r = playGame(1000 + i * 7, maxTurns, difficulty, style, jobs);
+  const r = playGame(1000 + i * 7, maxTurns, difficulty, style, jobs, partners);
   reports.push(r);
   const far = route.filter((a) => r.reached[a] !== undefined).pop();
   console.log(

@@ -4,6 +4,7 @@ import { BOSSES, GANGS, KO_BARKS, SPOT_BARKS } from "./data/enemies";
 import { ITEMS, type ItemDef } from "./data/items";
 import { BOARDS, BYSTANDERS, CLIENTS, type Job, PARCELS, RIVAL, WANTED_NAMES } from "./data/jobs";
 import { OBJECTS } from "./data/objects";
+import { PARTNER_BY_GYM, PARTNER_CUT, PARTNER_GLYPH, PARTNERS } from "./data/partners";
 import { SHOPS } from "./data/shops";
 import { STYLES, type StyleId } from "./data/styles";
 import { TECHNIQUES } from "./data/techniques";
@@ -35,16 +36,31 @@ import {
   type StatKey,
   type Stats,
 } from "./types";
-import { AREAS, buildArea, hashString, makeGangMember, reserveEnemyIds, START_AREA } from "./world";
+import {
+  AREAS,
+  buildArea,
+  hashString,
+  makeGangMember,
+  newEnemyId,
+  reserveEnemyIds,
+  START_AREA,
+} from "./world";
 
 /**
  * Version 2 added difficulty, fight-club bouts and saving in the middle of an area.
  * Version 3 added fighting styles, jobs and the rival.
+ * Version 4 added partners, New Game+ and running totals.
  */
-export const SAVE_VERSION = 3;
+export const SAVE_VERSION = 4;
 /** Jobs you can hold at once. */
 export const MAX_JOBS = 3;
 export const POCKET_SIZE = 8;
+/** How much tougher gangs get with each New Game+ round. */
+const PLUS_HEALTH = 0.6;
+const PLUS_STATS = 0.35;
+
+/** Basic hits in a row on one foe that make a combo finisher. */
+export const COMBO_HITS = 3;
 
 const COST = {
   move: 100,
@@ -83,6 +99,12 @@ export interface GameState {
   jobsTaken: string[];
   /** Meetings with your rival: how many, how many you won, and the turn of the last one. */
   rival: { met: number; wins: number; last: number };
+  /** Your partner, if you have one. Their health is kept here between areas. */
+  partner: { id: string; hp: number; out: boolean } | null;
+  /** New Game+ round: 0 on a first run. */
+  plus: number;
+  /** Running totals for the character sheet. */
+  tally: { jobs: number; rescues: number };
 }
 
 export interface AreaSnapshot {
@@ -204,6 +226,9 @@ export class Game {
       jobs: [],
       jobsTaken: [],
       rival: { met: 0, wins: 0, last: 0 },
+      partner: null,
+      plus: 0,
+      tally: { jobs: 0, rescues: 0 },
     };
     const game = new Game(state);
     game.placeAtArrival("@");
@@ -215,6 +240,41 @@ export class Game {
     game.log("Eat well, train hard, and fight your way east. Press ? for help.", C.light);
     game.updateView();
     return game;
+  }
+
+  /**
+   * After beating Varga: a brand-new city with tougher gangs, keeping your stats, moves, gear,
+   * cash, partner and the books you've read.
+   */
+  static newGamePlus(old: Game, seed: number): Game {
+    const o = old.s;
+    const g = Game.create(o.player.name, o.mode, seed, o.difficulty, o.player.style);
+    const p = g.s.player;
+    const keep = structuredClone(o.player);
+    p.base = keep.base;
+    p.cash = keep.cash;
+    p.pockets = keep.pockets;
+    p.gear = keep.gear;
+    p.techniques = keep.techniques;
+    p.selected = keep.selected;
+    p.kos = keep.kos;
+    p.hp = g.maxHp();
+    p.guts = g.maxGuts();
+    g.s.plus = (o.plus ?? 0) + 1;
+    g.s.soldOut = [...o.soldOut];
+    g.s.tally = { ...o.tally };
+    g.s.rival = { ...o.rival, last: 0 };
+    // Title belts stay won.
+    for (const [k, v] of Object.entries(o.flags)) if (k.startsWith("title_")) g.s.flags[k] = v;
+    if (o.partner) {
+      g.s.partner = { id: o.partner.id, hp: g.partnerStats(o.partner.id).stamina, out: false };
+      g.spawnAlly();
+    }
+    g.log(
+      `New Game+ ${g.s.plus}! Word of your win spread, and the gangs came back meaner. Much meaner.`,
+      C.yellow,
+    );
+    return g;
   }
 
   static load(json: string): Game {
@@ -231,6 +291,13 @@ export class Game {
       state.jobs = [];
       state.jobsTaken = [];
       state.rival = { met: 0, wins: 0, last: state.turn ?? 0 };
+      state.version = 3;
+    }
+    if (state.version === 3) {
+      // 0.3 saves: no partner, first run.
+      state.partner = null;
+      state.plus = 0;
+      state.tally = { jobs: 0, rescues: 0 };
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -239,12 +306,14 @@ export class Game {
     const resumed = state.snapshot?.id === state.areaId;
     const game = new Game(state);
     if (!resumed) game.placeAtArrival(state.arrive);
+    game.spawnAlly();
     game.log(`Back in ${game.area.name}.`, C.light);
     game.updateView();
     return game;
   }
 
   save(): string {
+    this.stashAlly();
     this.s.rng = this.rng.state;
     this.s.snapshot = {
       id: this.area.id,
@@ -261,15 +330,20 @@ export class Game {
   summary(): string {
     const p = this.s.player;
     const mode = this.s.mode === "permadeath" ? ", permadeath" : "";
-    return `${p.name} the ${STYLES[p.style]?.name ?? "Fighter"} - ${this.area.name} - ${DIFFICULTY[this.s.difficulty].label}${mode} - ${p.kos} KOs`;
+    const plus = this.s.plus ? ` NG+${this.s.plus}` : "";
+    return `${p.name} the ${STYLES[p.style]?.name ?? "Fighter"}${plus} - ${this.area.name} - ${DIFFICULTY[this.s.difficulty].label}${mode} - ${p.kos} KOs`;
   }
 
   /** Gang members get tougher or softer with the difficulty. */
   private toughen(e: Enemy): void {
     const d = DIFFICULTY[this.s.difficulty];
-    e.maxHp = Math.max(1, Math.round(e.maxHp * d.health));
-    e.hp = Math.min(e.maxHp, Math.max(1, Math.round(e.hp * d.health)));
-    e.cash = Math.round(e.cash * d.cash);
+    const plus = this.s.plus ?? 0;
+    const health = d.health * (1 + PLUS_HEALTH * plus);
+    e.maxHp = Math.max(1, Math.round(e.maxHp * health));
+    e.hp = Math.min(e.maxHp, Math.max(1, Math.round(e.hp * health)));
+    e.cash = Math.round(e.cash * d.cash * (1 + 0.6 * plus));
+    if (plus)
+      for (const k of STAT_KEYS) e.stats[k] = Math.round(e.stats[k] * (1 + PLUS_STATS * plus));
   }
 
   get player(): Player {
@@ -339,13 +413,18 @@ export class Game {
   private walk = (x: number, y: number): boolean => walkable(this.tileAt(x, y));
 
   enemyAt(x: number, y: number): Enemy | undefined {
-    return this.area.enemies.find((e) => e.x === x && e.y === y);
+    return this.area.enemies.find((e) => e.x === x && e.y === y && !e.ally);
+  }
+
+  /** Your partner, if they're in this area with you. */
+  ally(): Enemy | undefined {
+    return this.area.enemies.find((e) => e.ally);
   }
 
   private fighterAt(x: number, y: number): Fighter | undefined {
     const p = this.s.player;
     if (p.x === x && p.y === y) return p;
-    return this.enemyAt(x, y);
+    return this.area.enemies.find((e) => e.x === x && e.y === y);
   }
 
   private free(x: number, y: number): boolean {
@@ -372,7 +451,7 @@ export class Game {
   visibleEnemies(): Enemy[] {
     const p = this.s.player;
     return this.area.enemies
-      .filter((e) => this.visible[e.y * this.area.w + e.x])
+      .filter((e) => !e.ally && this.visible[e.y * this.area.w + e.x])
       .sort((a, b) => cheb(a, p) - cheb(b, p));
   }
 
@@ -392,7 +471,7 @@ export class Game {
     p.y = spot.y;
     p.time = 0;
     // Nobody waits right on top of the arrival square.
-    for (const e of a.enemies) if (cheb(e, p) <= 2 && !e.boss) e.x = -99;
+    for (const e of a.enemies) if (cheb(e, p) <= 2 && !e.boss && !e.ally) e.x = -99;
     a.enemies = a.enemies.filter((e) => e.x !== -99);
     a.start = { x: p.x, y: p.y };
   }
@@ -421,6 +500,7 @@ export class Game {
 
   private enterArea(id: string, arrive: string): void {
     const s = this.s;
+    this.stashAlly();
     s.visits[id] = (s.visits[id] ?? 0) + 1;
     this.area = buildArea(id, s.seed, s.visits[id], s.flags);
     for (const e of this.area.enemies) this.toughen(e);
@@ -428,8 +508,16 @@ export class Game {
     s.areaId = id;
     s.arrive = arrive;
     this.placeAtArrival(arrive);
-    this.updateView();
     const d = AREAS[id];
+    // Partners patch themselves up in town (and come back if they were knocked out).
+    if (d.kind === "town" && s.partner) {
+      if (s.partner.out)
+        this.log(`${PARTNERS[s.partner.id].name} is waiting for you, bandaged up.`, C.lime);
+      s.partner.out = false;
+      s.partner.hp = this.partnerStats(s.partner.id).stamina;
+    }
+    this.spawnAlly();
+    this.updateView();
     if (d.kind === "town") s.lastTown = id;
     this.log(d.intro, C.cyan);
     if (d.boss && !s.flags[BOSSES[d.boss].flag]) {
@@ -498,6 +586,8 @@ export class Game {
     if (p.regenClock % 6 === 0) p.hp = Math.min(this.maxHp(), p.hp + 1);
     if (p.regenClock % 5 === 0) p.guts = Math.min(this.maxGuts(), p.guts + 1);
     p.hp = Math.min(p.hp, this.maxHp());
+    const pal = this.ally();
+    if (pal && p.regenClock % 6 === 0) pal.hp = Math.min(pal.maxHp, pal.hp + 1);
     this.chase = distanceMap(this.area.w, this.area.h, this.walk, [p], 40);
     this.updateView();
     this.runEnemies();
@@ -554,6 +644,17 @@ export class Game {
     if (foe) {
       const held = p.held ? OBJECTS[p.held] : null;
       return held && !held.swing ? this.kick([dx, dy]) : this.punch([dx, dy]);
+    }
+    const pal = this.ally();
+    if (pal && pal.x === nx && pal.y === ny) {
+      if (!canStep(this.walk, p.x, p.y, dx, dy)) return false;
+      pal.x = p.x;
+      pal.y = p.y;
+      p.x = nx;
+      p.y = ny;
+      this.pickUpLoose();
+      this.endAction(COST.move);
+      return true;
     }
     const tile = this.tileAt(nx, ny);
     if (tile === T.EXIT) {
@@ -708,7 +809,7 @@ export class Game {
         p.held = null;
       }
     } else {
-      this.strike(p, target, this.punchRaw(), { dir, verb: "punch", sound: "punch" });
+      this.strike(p, target, this.punchRaw(), { dir, verb: "punch", sound: "punch", combo: true });
     }
     this.endAction(this.s.player.style === "boxer" ? 82 : COST.punch);
     return true;
@@ -729,6 +830,7 @@ export class Game {
       sound: "kick",
       knock: 1,
       accuracy: -5,
+      combo: true,
     });
     this.endAction(this.s.player.style === "kicker" ? 100 : COST.kick);
     return true;
@@ -902,7 +1004,7 @@ export class Game {
         break;
       case "cyclone":
         for (const e of [...this.area.enemies]) {
-          if (cheb(e, p) > 2 || !this.visible[e.y * this.area.w + e.x]) continue;
+          if (e.ally || cheb(e, p) > 2 || !this.visible[e.y * this.area.w + e.x]) continue;
           const dd: Dir = [sign(e.x - p.x), sign(e.y - p.y)];
           this.strike(p, e, this.kickRaw() * 1.4, {
             ...opts,
@@ -1173,14 +1275,17 @@ export class Game {
       accuracy?: number;
       /** Ignore defense (explosions). */
       raw?: boolean;
+      /** A basic punch or kick that counts toward a combo. */
+      combo?: boolean;
     },
   ): void {
     const p = this.s.player;
     const byPlayer = attacker === p;
+    const friendly = byPlayer || !!(attacker as Enemy).ally;
     const atkAgi = byPlayer ? this.stat("agility") : (attacker as Enemy).stats.agility;
     const defAgi = target === p ? this.stat("agility") : (target as Enemy).stats.agility;
     const def = target === p ? this.stat("defense") : (target as Enemy).stats.defense;
-    const base = byPlayer ? 86 : 74;
+    const base = byPlayer ? 86 : friendly ? 80 : 74;
     // Fast fighters dodge more, but anyone can land a hit.
     const floor = byPlayer ? 35 : 40;
     const chance = Math.max(
@@ -1189,8 +1294,13 @@ export class Game {
     );
     const lying = target.down > 0 || target.stun > 0;
     if (!o.sure && !lying && this.rng.next() * 100 >= chance) {
-      if (byPlayer) this.log(`You ${o.verb} ${this.nameOf(target)}, but miss.`, C.gray);
-      else this.log(`${this.nameOf(attacker)} swings at you and misses.`, C.gray);
+      if (byPlayer) {
+        this.log(`You ${o.verb} ${this.nameOf(target)}, but miss.`, C.gray);
+        if (o.combo) p.combo = undefined;
+      } else if (target === p)
+        this.log(`${this.nameOf(attacker)} swings at you and misses.`, C.gray);
+      else
+        this.log(`${this.nameOf(attacker)} swings at ${this.nameOf(target)} and misses.`, C.gray);
       this.pop(target.x, target.y, "miss", C.gray);
       this.sound("miss");
       return;
@@ -1202,10 +1312,23 @@ export class Game {
       crit = true;
     }
     if (lying) dmg *= 1.25;
-    if (!byPlayer) dmg *= DIFFICULTY[this.s.difficulty].damage;
+    if (!friendly) dmg *= DIFFICULTY[this.s.difficulty].damage;
     let knock = o.knock ?? 0;
     let stun = o.stun ?? 0;
     let down = o.down ?? 0;
+    // Three basic hits in a row on the same foe: the third is a finisher.
+    let finisher = false;
+    if (byPlayer && o.combo) {
+      const c = p.combo;
+      const n = c && c.id === target.id && c.turn >= this.s.turn - 1 ? c.n + 1 : 1;
+      if (n >= COMBO_HITS) {
+        finisher = true;
+        p.combo = undefined;
+        dmg *= 1.25;
+        knock = Math.max(knock, 1) + 1;
+        down = Math.max(down, 1);
+      } else p.combo = { id: target.id, n, turn: this.s.turn };
+    }
     if (target === p && p.guard) {
       dmg *= 0.4;
       knock = 0;
@@ -1218,28 +1341,45 @@ export class Game {
       target.x,
       target.y,
       crit ? `${amount}!` : `${amount}`,
-      byPlayer ? (crit ? C.yellow : C.white) : C.red,
+      byPlayer
+        ? crit || finisher
+          ? C.yellow
+          : C.white
+        : friendly
+          ? C.lime
+          : target === p
+            ? C.red
+            : C.orange,
     );
+    if (finisher) this.pop(target.x, target.y - 1, "COMBO!", C.yellow);
     this.sound(target === p ? "hurt" : o.sound);
     // Big hits shake the screen; whoever hit you flashes so you can see who it was.
     const targetMax = target === p ? this.maxHp() : (target as Enemy).maxHp;
-    if (crit || amount >= targetMax * 0.25)
-      this.events.push({ type: "impact", power: amount >= targetMax * 0.4 ? 2 : 1 });
-    if (!byPlayer)
+    if (crit || finisher || amount >= targetMax * 0.25)
+      this.events.push({ type: "impact", power: amount >= targetMax * 0.4 || finisher ? 2 : 1 });
+    if (target === p)
       this.events.push({ type: "flash", x: attacker.x, y: attacker.y, color: C.orange });
     if (byPlayer) {
       const e = target as Enemy;
+      const extra = finisher ? " - COMBO FINISHER!" : crit ? " - CRITICAL!" : ".";
       this.log(
-        `You ${o.verb} ${e.name} for ${amount}${crit ? " - CRITICAL!" : "."}`,
-        crit ? C.yellow : C.white,
+        `You ${o.verb} ${e.name} for ${amount}${extra}`,
+        crit || finisher ? C.yellow : C.white,
       );
       p.guts = Math.min(this.maxGuts(), p.guts + 1);
       if (!e.awake) this.wake(e, false);
-    } else {
+    } else if (target === p) {
       this.log(
         `${this.nameOf(attacker)} ${thirdPerson(o.verb)} you for ${amount}${p.guard ? " (guarded)" : ""}.`,
         C.red,
       );
+    } else {
+      this.log(
+        `${this.nameOf(attacker)} ${thirdPerson(o.verb)} ${this.nameOf(target)} for ${amount}.`,
+        friendly ? C.lime : C.orange,
+      );
+      const e = target as Enemy;
+      if (friendly && !e.awake) this.wake(e, false);
     }
     if (target.hp <= 0) {
       if (target === p) this.playerDown();
@@ -1266,6 +1406,182 @@ export class Game {
         (target as Enemy).boss ? knock - 1 : knock,
         byPlayer ? this.stat("strength") : (attacker as Enemy).stats.strength,
       );
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Partners
+
+  /** A partner's stats right now: a share of your own base stats. */
+  partnerStats(id: string): Stats {
+    const def = PARTNERS[id];
+    const p = this.s.player;
+    const out = {} as Stats;
+    for (const k of ALL_STATS) out[k] = Math.max(3, Math.round(p.base[k] * (def?.share[k] ?? 0.5)));
+    return out;
+  }
+
+  hirePartner(gymId: string): { ok: boolean; message: string } {
+    const def = PARTNERS[PARTNER_BY_GYM[gymId] ?? ""];
+    const p = this.s.player;
+    if (!def) return { ok: false, message: "Nobody here is looking for a partner." };
+    if (this.s.partner?.id === def.id)
+      return { ok: false, message: `${def.name} is already with you.` };
+    if (p.cash < def.price) {
+      this.sound("deny");
+      return { ok: false, message: `You need $${def.price - p.cash} more.` };
+    }
+    p.cash -= def.price;
+    const old = this.s.partner ? PARTNERS[this.s.partner.id] : null;
+    this.removeAlly();
+    this.s.partner = { id: def.id, hp: this.partnerStats(def.id).stamina, out: false };
+    this.spawnAlly();
+    this.sound("levelup");
+    const msg = `${def.name} joins you! ${def.hello}${old ? ` (${old.name} heads home.)` : ""}`;
+    this.log(msg, def.color);
+    return { ok: true, message: msg };
+  }
+
+  dismissPartner(): void {
+    const pt = this.s.partner;
+    if (!pt) return;
+    this.log(`${PARTNERS[pt.id].name} heads home. "Call me if you need me."`, C.gray);
+    this.removeAlly();
+    this.s.partner = null;
+  }
+
+  private removeAlly(): void {
+    this.area.enemies = this.area.enemies.filter((e) => !e.ally);
+  }
+
+  /** Puts your partner beside you, if they're with you and on their feet. */
+  private spawnAlly(): void {
+    const pt = this.s.partner;
+    if (!pt || pt.out || this.area.kind === "arena" || this.ally()) return;
+    const p = this.s.player;
+    const spot = this.spotsNear(p, 1)[0] ?? this.spotsNear(p, 2)[0];
+    const def = PARTNERS[pt.id];
+    if (!spot || !def) return;
+    const stats = this.partnerStats(pt.id);
+    this.area.enemies.push({
+      id: newEnemyId(),
+      x: spot.x,
+      y: spot.y,
+      hp: Math.max(1, Math.min(pt.hp, stats.stamina)),
+      maxHp: stats.stamina,
+      time: p.time + 10,
+      stun: 0,
+      down: 0,
+      kind: "partner",
+      name: def.name,
+      title: def.title,
+      glyph: PARTNER_GLYPH,
+      color: def.color,
+      stats,
+      ai: "brawler",
+      awake: true,
+      windup: null,
+      cash: 0,
+      boss: false,
+      cooldown: 2,
+      ally: def.id,
+    });
+  }
+
+  /** Remembers your partner's health (before leaving an area or saving). */
+  private stashAlly(): void {
+    const pal = this.ally();
+    if (pal && this.s.partner) this.s.partner.hp = pal.hp;
+  }
+
+  private allyDown(e: Enemy): void {
+    const idx = this.area.enemies.indexOf(e);
+    if (idx >= 0) this.area.enemies.splice(idx, 1);
+    if (this.s.partner) {
+      this.s.partner.out = true;
+      this.s.partner.hp = 0;
+    }
+    this.log(`${e.name} is knocked out! They'll catch up with you in the next town.`, C.orange);
+    this.pop(e.x, e.y, "KO", e.color);
+    this.sound("ko");
+  }
+
+  /** Your partner's move: fight what's next to them, join fights near you, and keep up. */
+  private allyTurn(e: Enemy): number {
+    const p = this.s.player;
+    const near = this.area.enemies.filter((o) => !o.ally && cheb(o, e) === 1);
+    if (near.length) {
+      const t = near.reduce((a, b) => (a.hp <= b.hp ? a : b));
+      const dir: Dir = [sign(t.x - e.x), sign(t.y - e.y)];
+      const def = PARTNERS[e.ally ?? ""];
+      if (def && e.cooldown === 0 && this.rng.chance(0.35)) {
+        e.cooldown = 5;
+        this.log(`${e.name} uses ${def.move.name}!`, e.color);
+        const raw = ((this.enemyPunch(e) + this.enemyKick(e)) / 2) * def.move.power;
+        this.strike(e, t, raw, {
+          dir,
+          verb: "nail",
+          sound: "kick",
+          knock: def.move.knock,
+          stun: def.move.stun,
+        });
+        return 120;
+      }
+      if (this.rng.chance(0.4)) {
+        this.strike(e, t, this.enemyKick(e), {
+          dir,
+          verb: "kick",
+          sound: "kick",
+          knock: this.rng.chance(0.3) ? 1 : 0,
+        });
+        return 120;
+      }
+      this.strike(e, t, this.enemyPunch(e), { dir, verb: "punch", sound: "punch" });
+      return 90;
+    }
+    // Join fights near you, finding a way round walls to the closest foe in the fight.
+    const w = this.area.w;
+    const foes = this.area.enemies.filter(
+      (o) => !o.ally && o.awake && cheb(o, p) <= 8 && this.visible[o.y * w + o.x] === 1,
+    );
+    if (foes.length && this.stepDown(e, distanceMap(w, this.area.h, this.walk, foes, 14)))
+      return 100;
+    // Keep up with you: hurry when left behind, and catch up if left far behind.
+    const gap = cheb(e, p);
+    if (gap > 12) {
+      const spot = this.spotsNear(p, 1)[0] ?? this.spotsNear(p, 2)[0];
+      if (spot) {
+        e.x = spot.x;
+        e.y = spot.y;
+      }
+      return 100;
+    }
+    if (gap > 2) {
+      this.stepDown(e, this.chase);
+      return gap > 4 ? 50 : 100;
+    }
+    return 100;
+  }
+
+  /** One step downhill on a distance map, toward whatever it measures from. */
+  private stepDown(f: Fighter, dist: Int32Array): boolean {
+    const { w, h } = this.area;
+    const here = dist[f.y * w + f.x] ?? -1;
+    let best: Dir | null = null;
+    let bestD = here < 0 ? Number.POSITIVE_INFINITY : here;
+    for (const d of DIRS8) {
+      const x = f.x + d[0];
+      const y = f.y + d[1];
+      if (x < 0 || y < 0 || x >= w || y >= h) continue;
+      const v = dist[y * w + x];
+      if (v < 0 || v >= bestD || !this.free(x, y)) continue;
+      if (!canStep(this.walk, f.x, f.y, d[0], d[1])) continue;
+      best = d;
+      bestD = v;
+    }
+    if (!best) return false;
+    f.x += best[0];
+    f.y += best[1];
+    return true;
   }
 
   private knockBack(f: Fighter, dir: Dir, squares: number, power: number): void {
@@ -1368,6 +1684,11 @@ export class Game {
       return;
     }
     const e = f as Enemy;
+    if (e.ally) {
+      this.log(`${e.name} falls ${where}!`, C.cyan);
+      this.allyDown(e);
+      return;
+    }
     this.log(`${e.name} falls ${where}!`, C.cyan);
     this.pop(e.x, e.y, tile.hazard === "water" ? "SPLASH" : "AAAH", C.cyan);
     e.hp = 0;
@@ -1380,6 +1701,10 @@ export class Game {
 
   private knockOut(e: Enemy, dropAt?: { x: number; y: number }): void {
     const p = this.s.player;
+    if (e.ally) {
+      this.allyDown(e);
+      return;
+    }
     const idx = this.area.enemies.indexOf(e);
     if (idx < 0) return;
     this.area.enemies.splice(idx, 1);
@@ -1398,10 +1723,10 @@ export class Game {
       this.log(`You collect $${e.cash}.`, C.gold);
       // The rest of the gang scatters.
       for (const other of [...this.area.enemies]) {
-        if (other.boss) continue;
+        if (other.boss || other.ally) continue;
         this.log(`${other.name} runs for it!`, C.gray);
       }
-      this.area.enemies = this.area.enemies.filter((o) => o.boss);
+      this.area.enemies = this.area.enemies.filter((o) => o.boss || o.ally);
       if (b.id === "varga") {
         this.s.over = "won";
         this.events.push({ type: "win" });
@@ -1412,8 +1737,10 @@ export class Game {
       this.rivalBeaten(e, at);
       return;
     }
+    const pt = this.s.partner;
+    if (pt && !pt.out && !this.s.bout) e.cash -= Math.round(e.cash * PARTNER_CUT);
     this.log(
-      `${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}"${e.cash > 0 ? ` (+${e.cash})` : ""}`,
+      `${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}"${e.cash > 0 ? ` (+$${e.cash})` : ""}`,
       e.color,
     );
     this.jobProgress(e, at);
@@ -1511,6 +1838,11 @@ export class Game {
       e.time += 100;
       return;
     }
+    if (e.ally) {
+      if (e.cooldown > 0) e.cooldown--;
+      e.time += Math.round(this.allyTurn(e) * spd);
+      return;
+    }
     const dist = cheb(e, p);
     const seen = this.visible[e.y * this.area.w + e.x] === 1;
     if (!e.awake) {
@@ -1548,6 +1880,19 @@ export class Game {
       }
     }
 
+    // Squaring off with your partner instead of you.
+    const pal = this.ally();
+    if (pal && dist > 1 && cheb(pal, e) === 1 && this.rng.chance(0.8)) {
+      const d: Dir = [sign(pal.x - e.x), sign(pal.y - e.y)];
+      const kick = this.rng.chance(0.35);
+      this.strike(e, pal, kick ? this.enemyKick(e) : this.enemyPunch(e), {
+        dir: d,
+        verb: kick ? "kick" : "punch",
+        sound: kick ? "kick" : "punch",
+      });
+      e.time += Math.round((kick ? 120 : 90) * spd);
+      return;
+    }
     const cost = e.boss ? this.bossTurn(e, dist) : this.gangTurn(e, dist);
     e.time += Math.round(cost * spd);
   }
@@ -2129,7 +2474,7 @@ export class Game {
     );
     if (short.length) return `Needs ${short.map(([k, v]) => `${STAT_LABEL[k]} ${v}`).join(", ")}`;
     const price = this.techPrice(techId);
-    if (p.cash < price) return `Need ${price - p.cash} more`;
+    if (p.cash < price) return `Need $${price - p.cash} more`;
     return null;
   }
 
@@ -2220,6 +2565,7 @@ export class Game {
 
   private completeJob(job: Job, at: { x: number; y: number }, how: string): void {
     this.s.jobs = this.s.jobs.filter((j) => j !== job);
+    this.s.tally.jobs++;
     this.s.player.cash += job.reward;
     this.log(`${how} Job done! ${job.client} pays you $${job.reward}.`, C.gold);
     this.pop(at.x, at.y - 1, `+$${job.reward}`, C.gold);
@@ -2389,6 +2735,7 @@ export class Game {
     a.items.splice(a.items.indexOf(npc), 1);
     const who = BYSTANDERS[npc.who] ?? BYSTANDERS[0];
     const p = this.s.player;
+    this.s.tally.rescues++;
     const cash = Math.round((12 + 8 * a.depth) * this.rng.range(0.8, 1.2));
     p.cash += cash;
     this.log(`${who.name}: ${who.thanks} (+$${cash})`, who.color);
@@ -2625,6 +2972,7 @@ export class Game {
     p.y = back.y;
     p.time = 0;
     this.area.start = { x: p.x, y: p.y };
+    this.spawnAlly();
     this.updateView();
     this.events.push({ type: "bout", result: won ? "won" : "lost" }, { type: "area" });
   }

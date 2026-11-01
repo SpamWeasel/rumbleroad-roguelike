@@ -23,6 +23,7 @@ export const ACTIONS = [
   "rest",
   "log",
   "jobs",
+  "sheet",
   "help",
   "menu",
 ] as const;
@@ -49,6 +50,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   rest: "Rest",
   log: "Message log",
   jobs: "Jobs",
+  sheet: "Character sheet",
   help: "Help",
   menu: "Menu",
 };
@@ -86,6 +88,7 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   rest: ["KeyR"],
   log: ["KeyM"],
   jobs: ["KeyO"],
+  sheet: ["KeyP"],
   help: ["Slash", "F1", "KeyH"],
   menu: ["Escape"],
 };

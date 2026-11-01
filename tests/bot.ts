@@ -5,11 +5,13 @@
  */
 import { BOSSES } from "../src/game/data/enemies";
 import { ITEMS } from "../src/game/data/items";
+import { PARTNER_BY_GYM, PARTNERS } from "../src/game/data/partners";
 import { SHOPS } from "../src/game/data/shops";
 import type { StyleId } from "../src/game/data/styles";
 import { TECHNIQUES } from "../src/game/data/techniques";
 
 let botTakesJobs = true;
+let botHires = true;
 
 import { Game } from "../src/game/game";
 import { canStep, distanceMap } from "../src/game/grid";
@@ -48,6 +50,8 @@ export interface RunReport {
   rivalWins: number;
   /** Snapshots when each town was first reached. */
   snapshots: Record<string, string>;
+  /** The game itself, to carry on into New Game+. */
+  game: Game;
 }
 
 const cheb = (a: { x: number; y: number }, b: { x: number; y: number }) =>
@@ -59,9 +63,14 @@ export function playGame(
   difficulty: Difficulty = "normal",
   style: StyleId = "allround",
   takeJobs = true,
+  hirePartners = true,
+  /** Keep playing this game instead of starting a new one (New Game+ runs). */
+  start?: Game,
 ): RunReport {
-  const g = Game.create("Bot", "street", seed, difficulty, style);
+  const g = start ?? Game.create("Bot", "street", seed, difficulty, style);
+  const firstTurn = g.s.turn;
   botTakesJobs = takeJobs;
+  botHires = hirePartners;
   const r: RunReport = {
     seed,
     turns: 0,
@@ -77,6 +86,7 @@ export function playGame(
     stats: {},
     techniques: [],
     snapshots: {},
+    game: g,
     jobs: 0,
     jobsDone: 0,
     rivalWins: 0,
@@ -92,7 +102,7 @@ export function playGame(
   const snapshot = () =>
     `${ALL_STATS.map((k) => `${k.slice(0, 3)} ${g.stat(k)}`).join(" ")} | techs ${g.player.techniques.length} | gear ${Object.values(g.player.gear).join(",")}`;
 
-  while (g.s.turn < maxTurns && !g.s.over) {
+  while (g.s.turn - firstTurn < maxTurns && !g.s.over) {
     const area = g.area;
     if (r.reached[area.id] === undefined) {
       r.reached[area.id] = g.s.turn;
@@ -134,7 +144,7 @@ export function playGame(
     lastPos = pos;
   }
 
-  r.turns = g.s.turn;
+  r.turns = g.s.turn - firstTurn;
   r.won = g.s.over === "won";
   r.kos = g.player.kos;
   r.techniques = [...g.player.techniques];
@@ -339,6 +349,16 @@ function shop(g: Game, r: RunReport): void {
     if (s.kind !== "board" || !botTakesJobs) continue;
     for (const job of g.boardOffers(s.id))
       if (job.kind !== "courier" && g.takeJob(s.id, job.id).ok) r.jobs++;
+  }
+  // A partner (or a better one) once there's cash to spare.
+  for (const s of shops) {
+    const id = PARTNER_BY_GYM[s.id];
+    if (!botHires || !id) continue;
+    const current = g.s.partner ? PARTNERS[g.s.partner.id].price : 0;
+    if (PARTNERS[id].price > current && p.cash > PARTNERS[id].price * 1.5) {
+      const before = p.cash;
+      if (g.hirePartner(s.id).ok) r.spent.partner = (r.spent.partner ?? 0) + before - p.cash;
+    }
   }
   // Techniques first: they're the big power jumps.
   for (const s of shops) {
