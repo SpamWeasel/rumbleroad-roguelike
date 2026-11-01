@@ -24,6 +24,8 @@ export const ACTIONS = [
   "log",
   "jobs",
   "sheet",
+  "travelOn",
+  "travelBack",
   "help",
   "menu",
 ] as const;
@@ -51,6 +53,8 @@ export const ACTION_LABEL: Record<Action, string> = {
   log: "Message log",
   jobs: "Jobs",
   sheet: "Character sheet",
+  travelOn: "Walk to the next area",
+  travelBack: "Walk back toward town",
   help: "Help",
   menu: "Menu",
 };
@@ -89,6 +93,8 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   log: ["KeyM"],
   jobs: ["KeyO"],
   sheet: ["KeyP"],
+  travelOn: ["BracketRight"],
+  travelBack: ["BracketLeft"],
   help: ["Slash", "F1", "KeyH"],
   menu: ["Escape"],
 };
@@ -174,6 +180,8 @@ export function keyName(code: string | undefined): string {
     Semicolon: ";",
     Escape: "Esc",
     Space: "Space",
+    BracketLeft: "[",
+    BracketRight: "]",
   };
   return names[code] ?? code;
 }

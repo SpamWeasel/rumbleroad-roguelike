@@ -1,4 +1,5 @@
 import { C } from "../../../game/colors";
+import { ACHIEVEMENT_BY_ID, ACHIEVEMENTS } from "../../../game/data/achievements";
 import { STYLE_ORDER, STYLES, type StyleId } from "../../../game/data/styles";
 import { Game } from "../../../game/game";
 import { DIFFICULTY, type Difficulty, type Mode } from "../../../game/types";
@@ -6,6 +7,7 @@ import { SAVE_SLOTS, type SlotInfo } from "../../../shared/bridge";
 import type { App, Screen } from "../app";
 import { setMusicVolume, setVolume } from "../audio";
 import { isBack, isDown, isLeft, isRight, isUp } from "../input";
+import { checkAchievements, earned, earnedCount, styleUnlocked } from "../profile";
 import { loadRecords, type RunRecord } from "../records";
 import {
   ACTION_LABEL,
@@ -130,6 +132,7 @@ export class TitleScreen implements Screen {
       ...(this.slots.length ? ["Load Game"] : []),
       "Settings",
       "Records",
+      "Achievements",
       "How to Play",
       ...(window.rumblerow ? ["Quit"] : []),
     ];
@@ -151,6 +154,7 @@ export class TitleScreen implements Screen {
       else if (choice === "Load Game") this.app.push(new SlotsScreen(this.app));
       else if (choice === "Settings") this.app.push(new SettingsScreen(this.app));
       else if (choice === "Records") this.app.push(new RecordsScreen(this.app));
+      else if (choice === "Achievements") this.app.push(new AchievementsScreen(this.app));
       else if (choice === "How to Play") this.app.push(new HelpScreen(this.app));
       else if (choice === "Quit") window.rumblerow?.quit();
     }
@@ -236,6 +240,7 @@ class CreateScreen implements Screen {
     }
     if (e.code === "Enter" || e.code === "NumpadEnter") {
       // Overwriting a saved game needs a second Enter.
+      if (!styleUnlocked(this.style)) return;
       if (this.taken() && !this.armed) {
         this.armed = true;
         return;
@@ -266,14 +271,24 @@ class CreateScreen implements Screen {
     head(1, "Fighting style:", y + 5);
     const st = STYLES[this.style];
     const pos = `(${STYLE_ORDER.indexOf(this.style) + 1} of ${STYLE_ORDER.length})`;
+    const open = styleUnlocked(this.style);
     const nx = t.text(x + 5, y + 6, `◄ ${st.name} ►`, this.row === 1 ? C.yellow : C.white);
-    t.text(nx + 2, y + 6, pos, C.dim);
-    Term.wrap(st.blurb, 58)
-      .slice(0, 2)
-      .forEach((l, i) => t.text(x + 5, y + 7 + i, l, C.gray));
-    Term.wrap(st.perk, 58)
-      .slice(0, 2)
-      .forEach((l, i) => t.text(x + 5, y + 9 + i, l, C.lime));
+    t.text(nx + 2, y + 6, open ? pos : `${pos}  LOCKED`, open ? C.dim : C.red);
+    if (!open) {
+      const how = ACHIEVEMENT_BY_ID[st.unlock ?? ""];
+      Term.wrap(`Unlock it with the "${how?.name}" achievement: ${how?.desc ?? ""}`, 58)
+        .slice(0, 2)
+        .forEach((l, i) => t.text(x + 5, y + 7 + i, l, C.orange));
+      t.text(x + 5, y + 9, st.perk, C.dim, undefined, x + 64);
+    }
+    if (open) {
+      Term.wrap(st.blurb, 58)
+        .slice(0, 2)
+        .forEach((l, i) => t.text(x + 5, y + 7 + i, l, C.gray));
+      Term.wrap(st.perk, 58)
+        .slice(0, 2)
+        .forEach((l, i) => t.text(x + 5, y + 9 + i, l, C.lime));
+    }
     const b = st.base;
     let sx = x + 5;
     for (const [label, v] of [
@@ -687,9 +702,8 @@ export class HelpScreen implements Screen {
       ],
       [
         "MORE",
-        `${k("rest")} rests when nobody's around. ${k("log")} shows the log. Point the mouse at anything to see what it is.`,
+        `${k("rest")} rests when nobody's around. ${k("log")} shows the log. Point the mouse at things to learn more.`,
       ],
-      ["", ""],
       [
         "SHOPS",
         "Walk into a shop door to go in. Food heals you AND permanently raises your stats -",
@@ -698,7 +712,7 @@ export class HelpScreen implements Screen {
       ["", "Every restaurant has a daily special at 40% off. It changes each time you come back."],
       [
         "GEAR",
-        "Sporting-goods stores sell shoes, gloves, jackets and charms that boost stats while worn.",
+        "Gear shops sell shoes, gloves, jackets and charms that boost your stats while worn.",
       ],
       [
         "GYMS",
@@ -707,13 +721,21 @@ export class HelpScreen implements Screen {
       ["", "Each gym also has a fighter who'll team up with you as a partner (one at a time)."],
       [
         "CLUBS",
-        "Each town hides a fight club (a red ! door). Bet on yourself, win purses and title belts.",
+        "Each town hides a fight club (red ! door): bet on yourself, win purses and belts.",
       ],
       [
         "JOBS",
         `Job boards (yellow ≡ doors) post bounties, clean-ups and deliveries. ${k("jobs")} lists yours.`,
       ],
       ["", "On the streets, rescue people being shaken down - and watch out for your rival, Dex."],
+      [
+        "TRAVEL",
+        `Bus stops (a blue B) link towns you've reached. ${k("travelOn")} / ${k("travelBack")} walk to the next / previous exit.`,
+      ],
+      [
+        "NIGHT",
+        "From 21:00 to 5:00 the streets are darker, crews bigger and richer, some shops shut.",
+      ],
       [
         "TACTICS",
         "Knock foes into walls (SLAM), into each other, or into the water for an instant KO.",
@@ -723,10 +745,8 @@ export class HelpScreen implements Screen {
         `Three punches or kicks in a row on one foe make a COMBO finisher. ${k("sheet")}: character sheet.`,
       ],
       ["", "Big guys wind up huge swings - the target square flashes red. Step away or guard!"],
-      [
-        "GOAL",
-        "Fight east through the city, beat each gang boss, and take down Duke Varga in Crown Tower.",
-      ],
+      ["GOAL", "Fight east, beat each gang's boss, and take down Duke Varga in Crown Tower."],
+      ["", ""],
       ["SAVING", "The game saves itself as you play, and when you close the window. 3 save slots."],
     ];
     t.box(4, 2, 102, 31, C.yellow, "How to Play");
@@ -898,6 +918,49 @@ export class NoticeScreen implements Screen {
   }
 }
 
+/** Every achievement, earned or not, across all your games. */
+export class AchievementsScreen implements Screen {
+  constructor(private app: App) {}
+
+  key(e: KeyboardEvent): void {
+    if (isBack(e) || confirm(e)) this.app.pop();
+  }
+
+  draw(t: Term): void {
+    t.box(
+      10,
+      2,
+      90,
+      32,
+      C.gold,
+      `Achievements (${earnedCount()} of ${ACHIEVEMENTS.length})`,
+      C.gold,
+    );
+    ACHIEVEMENTS.forEach((a, i) => {
+      const row = 4 + i;
+      const when = earned(a.id);
+      const unlocks = Object.values(STYLES).some((st) => st.unlock === a.id);
+      t.text(13, row, when ? "★" : "·", when ? C.gold : C.dim);
+      t.text(15, row, a.name, when ? C.white : unlocks ? C.amber : C.gray);
+      t.text(44, row, a.desc, when ? C.light : C.dim, undefined, 98);
+      if (when) t.text(88, row, when, C.dim);
+    });
+    let yy = 5 + ACHIEVEMENTS.length;
+    t.text(13, yy++, "New fighting styles:", C.gray);
+    for (const st of Object.values(STYLES).filter((x) => x.unlock)) {
+      const how = ACHIEVEMENT_BY_ID[st.unlock ?? ""];
+      const open = earned(st.unlock ?? "");
+      t.text(
+        15,
+        yy++,
+        `${st.name} - ${open ? "unlocked!" : `earn "${how?.name}"`}`,
+        open ? C.lime : C.amber,
+      );
+    }
+    t.text(13, 32, "Achievements count across all your games.   Esc to close", C.dim);
+  }
+}
+
 export class EndScreen implements Screen {
   /** After a win: 0 = New Game+, 1 = back to the title. */
   private choice = 0;
@@ -917,6 +980,7 @@ export class EndScreen implements Screen {
     if (e.code === "Enter" || e.code === "NumpadEnter" || e.code === "Escape") {
       const g = this.app.game;
       if (won && this.choice === 0 && g) {
+        checkAchievements(g);
         const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
         startGame(this.app, Game.newGamePlus(g, seed), this.app.slot);
         return;

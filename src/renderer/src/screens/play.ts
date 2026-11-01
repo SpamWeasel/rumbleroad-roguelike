@@ -13,11 +13,13 @@ import { type Area, type Dir, GEAR_SLOTS, STAT_KEYS, STAT_SHORT } from "../../..
 import { AREAS } from "../../../game/world";
 import type { App, Screen } from "../app";
 import { digitFromKey } from "../input";
+import { checkAchievements } from "../profile";
 import { addRecord } from "../records";
 import { ACTION_DIR, actionFor, keyName, settings } from "../settings";
 import type { Term } from "../term";
 import { ArenaScreen } from "./arena";
 import { BoardScreen, JobsScreen } from "./board";
+import { BusScreen } from "./bus";
 import { CharacterScreen } from "./character";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
@@ -49,6 +51,8 @@ export class PlayScreen implements Screen {
   private camX = 0;
   private camY = 0;
   private signs = new WeakMap<Area, Map<number, { ch: string; color: string }>>();
+  /** Squares that stay bright at night (near lamps, neon and doors). */
+  private lights = new WeakMap<Area, Uint8Array>();
   /** The grid cell under the mouse, for the info box. */
   private mouse: { x: number; y: number } | null = null;
   /** The hint on show and when it appeared. */
@@ -137,6 +141,11 @@ export class PlayScreen implements Screen {
         return;
       case "sheet":
         this.app.push(new CharacterScreen(this.app));
+        return;
+      case "travelOn":
+      case "travelBack":
+        g.travel(action === "travelOn" ? ">" : "<");
+        this.flush();
         return;
       case "help":
         this.app.push(new HelpScreen(this.app));
@@ -239,6 +248,13 @@ export class PlayScreen implements Screen {
     }
     g.events.length = 0;
     if (impact) this.app.impact(impact);
+    for (const a of checkAchievements(g)) {
+      g.log(
+        `Achievement: ${a.name}!${a.unlocks.length ? ` New style unlocked: ${a.unlocks.join(", ")}.` : ""}`,
+        C.gold,
+      );
+      this.app.sound("levelup");
+    }
     if (area) {
       this.pops = [];
       this.flashes = [];
@@ -284,7 +300,9 @@ export class PlayScreen implements Screen {
           ? new ArenaScreen(this.app, shop, this)
           : kind === "board"
             ? new BoardScreen(this.app, shop)
-            : new ShopScreen(this.app, shop),
+            : kind === "bus"
+              ? new BusScreen(this.app, shop, this)
+              : new ShopScreen(this.app, shop),
       );
     }
   }
@@ -352,12 +370,32 @@ export class PlayScreen implements Screen {
     return map;
   }
 
+  private lightsFor(a: Area): Uint8Array {
+    let light = this.lights.get(a);
+    if (light) return light;
+    light = new Uint8Array(a.lamp);
+    const glow = (cx: number, cy: number, r: number) => {
+      for (let y = cy - r; y <= cy + r; y++)
+        for (let x = cx - r; x <= cx + r; x++)
+          if (x >= 0 && y >= 0 && x < a.w && y < a.h) (light as Uint8Array)[y * a.w + x] = 1;
+    };
+    for (let i = 0; i < a.tiles.length; i++) {
+      const tile = a.tiles[i];
+      const r = tile === T.LAMP ? 2 : tile === T.NEON ? 1 : tile === T.DOOR ? 1 : -1;
+      if (r >= 0) glow(i % a.w, Math.floor(i / a.w), r);
+    }
+    this.lights.set(a, light);
+    return light;
+  }
+
   private drawMap(t: Term, now: number): void {
     const g = this.game;
     const a = g.area;
     const p = g.player;
     this.camera();
     const signs = this.signsFor(a);
+    const night = g.isNight() && a.kind !== "arena";
+    const light = night ? this.lightsFor(a) : null;
     const def = AREAS[a.id];
     const tileAt = (x: number, y: number) =>
       x < 0 || y < 0 || x >= a.w || y >= a.h ? T.VOID : a.tiles[y * a.w + x];
@@ -406,10 +444,16 @@ export class PlayScreen implements Screen {
           bg = C.ink;
         }
         if (tid === T.DOOR) {
-          const shop = SHOPS[a.doors.get(i) ?? ""];
+          const id = a.doors.get(i) ?? "";
+          const shop = SHOPS[id];
           ch = shop?.glyph ?? "+";
           fg = shop?.color ?? C.amber;
           bg = shop?.kind === "vendor" ? C.dark : C.black;
+          // Shuttered for the night (or until dark).
+          if (shop && !g.shopOpen(id)) {
+            fg = C.dim;
+            if (shop.kind !== "vendor") ch = "▬";
+          }
         }
         if (tid === T.EXIT) {
           const exit = a.exits.find((e) => e.x === mx && e.y === my);
@@ -424,6 +468,10 @@ export class PlayScreen implements Screen {
           if (sign) fg = C.gray;
         } else if (!a.lit && a.lamp[i] && bg === C.black) {
           bg = "#14120a";
+        }
+        if (vis && light && !light[i] && !sign) {
+          fg = shade(fg, 0.5);
+          bg = shade(bg, 0.45);
         }
         t.put(sx, sy, ch, fg, bg);
       }
@@ -532,7 +580,11 @@ export class PlayScreen implements Screen {
     const mode = g.s.mode === "permadeath" ? "PERMADEATH" : "";
     if (mode) t.text(x + SIDE_W - mode.length - 1, y, mode, C.red);
     y++;
-    t.text(x + 1, y++, g.area.name, C.cyan);
+    t.text(x + 1, y, g.area.name, C.cyan, undefined, x + SIDE_W - 13);
+    const clock = g.clock();
+    const hhmm = `${String(Math.floor(clock.minute / 60)).padStart(2, "0")}:${String(clock.minute % 60).padStart(2, "0")}`;
+    const when = `Day ${clock.day} ${hhmm}${clock.night ? "☾" : "☼"}`;
+    t.text(x + SIDE_W - when.length - 1, y++, when, clock.night ? C.blue : C.yellow);
     line();
     bar(
       t,
@@ -822,9 +874,19 @@ export class PlayScreen implements Screen {
         vendor: "Street vendor",
         arena: "Underground fight club",
         board: "Job board - bounties, deliveries, odd jobs",
+        bus: "Bus stop - ride to towns you've reached",
       };
       out.push({ text: shop.name, color: shop.color });
       out.push({ text: kinds[shop.kind] ?? "", color: C.gray });
+      if (!g.shopOpen(shopId))
+        out.push({
+          text:
+            shop.hours === "night"
+              ? "Only around after dark (21:00)"
+              : "Closed for the night - opens at 5:00",
+          color: C.orange,
+        });
+      else if (shop.hours === "day") out.push({ text: "Closes at night (21:00)", color: C.gray });
       const special = g.specialOf(shopId);
       if (special) out.push({ text: `Today's special: ${ITEMS[special].name}`, color: C.lime });
       return out;
@@ -901,6 +963,16 @@ function bar(
   for (let i = 0; i < w; i++)
     t.put(x + label.length + 1 + i, y, i < fillN ? "█" : "░", i < fillN ? color : C.dark);
   t.text(x + width - nums.length, y, nums, C.white);
+}
+
+/** A hex color darkened by a factor (other color strings are left alone). */
+function shade(color: string, f: number): string {
+  if (!/^#[0-9a-f]{6}$/i.test(color)) return color;
+  const n = Number.parseInt(color.slice(1), 16);
+  const r = Math.round(((n >> 16) & 255) * f);
+  const g = Math.round(((n >> 8) & 255) * f);
+  const b = Math.round((n & 255) * f);
+  return `#${((r << 16) | (g << 8) | b).toString(16).padStart(6, "0")}`;
 }
 
 function dimColor(hex: string): string {

@@ -4,7 +4,14 @@ import type { Stats } from "../types";
  * Fighting styles, picked when you start a new game. Each spreads the same 36 points across the
  * six fighting stats a different way and comes with one small perk (handled in game.ts).
  */
-export type StyleId = "allround" | "boxer" | "kicker" | "brawler" | "hustler";
+export type StyleId =
+  | "allround"
+  | "boxer"
+  | "kicker"
+  | "brawler"
+  | "hustler"
+  | "wrestler"
+  | "runner";
 
 export interface StyleDef {
   id: StyleId;
@@ -14,6 +21,8 @@ export interface StyleDef {
   base: Stats;
   cash: number;
   pockets: string[];
+  /** Achievement that unlocks this style (data/achievements.ts); none = always open. */
+  unlock?: string;
 }
 
 export const STYLES: Record<StyleId, StyleDef> = {
@@ -62,6 +71,34 @@ export const STYLES: Record<StyleId, StyleDef> = {
     cash: 90,
     pockets: ["candy", "bandage"],
   },
+  wrestler: {
+    id: "wrestler",
+    name: "Wrestler",
+    blurb: "Spent years in a high-school singlet. Grabs first, asks questions never.",
+    perk: "Takedown: a quarter of your punches knock foes to the ground.",
+    base: { punch: 7, kick: 3, strength: 9, agility: 5, defense: 7, guts: 5, stamina: 56 },
+    cash: 25,
+    pockets: ["candy", "candy"],
+    unlock: "champ",
+  },
+  runner: {
+    id: "runner",
+    name: "Night Runner",
+    blurb: "Knows every rooftop and back alley, and does their best work after dark.",
+    perk: "Night moves: +3 Agility and see further at night.",
+    base: { punch: 6, kick: 7, strength: 4, agility: 8, defense: 5, guts: 6, stamina: 46 },
+    cash: 25,
+    pockets: ["candy", "soda"],
+    unlock: "night_owl",
+  },
 };
 
-export const STYLE_ORDER: StyleId[] = ["allround", "boxer", "kicker", "brawler", "hustler"];
+export const STYLE_ORDER: StyleId[] = [
+  "allround",
+  "boxer",
+  "kicker",
+  "brawler",
+  "hustler",
+  "wrestler",
+  "runner",
+];

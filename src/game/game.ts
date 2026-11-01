@@ -50,11 +50,22 @@ import {
  * Version 2 added difficulty, fight-club bouts and saving in the middle of an area.
  * Version 3 added fighting styles, jobs and the rival.
  * Version 4 added partners, New Game+ and running totals.
+ * Version 5 added the day/night clock.
  */
-export const SAVE_VERSION = 4;
+export const SAVE_VERSION = 5;
+/** A turn is a minute. New games start at 8:00; night runs from 21:00 to 5:00. */
+export const DAY_START = 8 * 60;
+export const NIGHT_FROM = 21 * 60;
+export const NIGHT_TO = 5 * 60;
 /** Jobs you can hold at once. */
 export const MAX_JOBS = 3;
 export const POCKET_SIZE = 8;
+/** Towns on the bus line, in order; each stop along the way costs BUS_FARE. */
+const BUS_TOWNS = ["maple", "harbor", "neon"];
+const BUS_FARE = 8;
+const BUS_MINUTES = 40;
+/** Night crews carry more cash. */
+const NIGHT_CASH = 1.4;
 /** How much tougher gangs get with each New Game+ round. */
 const PLUS_HEALTH = 0.6;
 const PLUS_STATS = 0.35;
@@ -103,8 +114,10 @@ export interface GameState {
   partner: { id: string; hp: number; out: boolean } | null;
   /** New Game+ round: 0 on a first run. */
   plus: number;
-  /** Running totals for the character sheet. */
-  tally: { jobs: number; rescues: number };
+  /** Running totals for the character sheet and achievements. */
+  tally: { jobs: number; rescues: number; meals: number; nightKos: number };
+  /** Minutes the clock is ahead of the turn count (sleeping skips ahead). */
+  clock: number;
 }
 
 export interface AreaSnapshot {
@@ -159,7 +172,13 @@ export class Game {
   private constructor(state: GameState) {
     this.s = state;
     this.rng = new Rng(state.rng);
-    this.area = buildArea(state.areaId, state.seed, state.visits[state.areaId] ?? 1, state.flags);
+    this.area = buildArea(
+      state.areaId,
+      state.seed,
+      state.visits[state.areaId] ?? 1,
+      state.flags,
+      isNightAt(DAY_START + state.turn + (state.clock ?? 0)),
+    );
     const snap = state.snapshot;
     if (snap && snap.id === state.areaId) {
       this.area.enemies = snap.enemies;
@@ -228,7 +247,8 @@ export class Game {
       rival: { met: 0, wins: 0, last: 0 },
       partner: null,
       plus: 0,
-      tally: { jobs: 0, rescues: 0 },
+      tally: { jobs: 0, rescues: 0, meals: 0, nightKos: 0 },
+      clock: 0,
     };
     const game = new Game(state);
     game.placeAtArrival("@");
@@ -297,7 +317,13 @@ export class Game {
       // 0.3 saves: no partner, first run.
       state.partner = null;
       state.plus = 0;
-      state.tally = { jobs: 0, rescues: 0 };
+      state.tally = { jobs: 0, rescues: 0, meals: 0, nightKos: 0 };
+      state.version = 4;
+    }
+    if (state.version === 4) {
+      // 0.4 saves: the clock starts now.
+      state.clock = 0;
+      state.tally = Object.assign({ meals: 0, nightKos: 0 }, state.tally);
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -351,6 +377,27 @@ export class Game {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Clock
+
+  /** Day number (from 1), minutes past midnight, and whether it's night. */
+  clock(): { day: number; minute: number; night: boolean } {
+    const t = DAY_START + this.s.turn + (this.s.clock ?? 0);
+    const minute = ((t % 1440) + 1440) % 1440;
+    return { day: Math.floor(t / 1440) + 1, minute, night: isNightAt(t) };
+  }
+
+  isNight(): boolean {
+    return this.clock().night;
+  }
+
+  /** Whether a shop is open right now. */
+  shopOpen(shopId: string): boolean {
+    const hours = SHOPS[shopId]?.hours;
+    if (!hours) return true;
+    return hours === "night" ? this.isNight() : !this.isNight();
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Stats
 
   stat(key: AnyStat): number {
@@ -358,6 +405,7 @@ export class Game {
     let v = p.base[key];
     for (const id of Object.values(p.gear)) if (id) v += ITEMS[id]?.stats?.[key] ?? 0;
     for (const b of p.buffs) v += b.stats[key] ?? 0;
+    if (key === "agility" && p.style === "runner" && this.isNight()) v += 3;
     return Math.max(1, Math.min(key === "stamina" ? STAMINA_CAP : STAT_CAP, v));
   }
 
@@ -462,7 +510,9 @@ export class Game {
     const p = this.s.player;
     const a = this.area;
     let spot = a.start;
-    if (marker !== "@") {
+    const stop = marker === "bus" ? [...a.doors].find(([, id]) => SHOPS[id]?.kind === "bus") : null;
+    if (stop) spot = this.stepInside({ x: stop[0] % a.w, y: Math.floor(stop[0] / a.w) });
+    else if (marker !== "@") {
       const ends = a.exits.filter((e) => e.marker === marker);
       const mid = ends[Math.floor(ends.length / 2)] ?? a.exits[0];
       if (mid) spot = this.stepInside(mid);
@@ -502,8 +552,12 @@ export class Game {
     const s = this.s;
     this.stashAlly();
     s.visits[id] = (s.visits[id] ?? 0) + 1;
-    this.area = buildArea(id, s.seed, s.visits[id], s.flags);
-    for (const e of this.area.enemies) this.toughen(e);
+    const night = this.isNight();
+    this.area = buildArea(id, s.seed, s.visits[id], s.flags, night);
+    for (const e of this.area.enemies) {
+      this.toughen(e);
+      if (night && this.area.kind === "district") e.cash = Math.round(e.cash * NIGHT_CASH);
+    }
     this.visible = new Uint8Array(this.area.w * this.area.h);
     s.areaId = id;
     s.arrive = arrive;
@@ -577,7 +631,9 @@ export class Game {
 
   private passTurn(): void {
     const p = this.s.player;
+    const wasNight = this.isNight();
     this.s.turn++;
+    if (this.isNight() !== wasNight) this.announceTime();
     // Buffs wear off; health and guts trickle back.
     for (const b of p.buffs) b.turns--;
     for (const b of p.buffs.filter((b) => b.turns <= 0)) this.log(`${b.name} wears off.`, C.gray);
@@ -592,6 +648,15 @@ export class Game {
     this.updateView();
     this.runEnemies();
     this.updateView();
+  }
+
+  private announceTime(): void {
+    if (this.isNight())
+      this.log(
+        "Night falls. Streetlights flicker on, some shops pull down their shutters, and bigger crews come out.",
+        C.blue,
+      );
+    else this.log("The sun comes up over the city. Shops open their doors.", C.yellow);
   }
 
   private runEnemies(): void {
@@ -611,7 +676,8 @@ export class Game {
     if (a.lit) {
       this.visible.fill(1);
     } else {
-      const sight = AREAS[a.id].sight ?? 10;
+      let sight = AREAS[a.id].sight ?? 10;
+      if (this.isNight()) sight = Math.max(5, sight - 3) + (p.style === "runner" ? 2 : 0);
       computeFov(
         a.w,
         a.h,
@@ -663,6 +729,14 @@ export class Game {
     }
     if (tile === T.DOOR) {
       const shop = this.area.doors.get(ny * this.area.w + nx);
+      if (shop && !this.shopOpen(shop)) {
+        const night = SHOPS[shop].hours === "night";
+        this.notice(
+          `${SHOPS[shop].name} is closed. ${night ? "Comes out after dark (21:00)." : "Opens at dawn (5:00)."}`,
+        );
+        this.sound("deny");
+        return false;
+      }
       if (shop) {
         this.sound("door");
         this.deliver(shop);
@@ -1316,6 +1390,15 @@ export class Game {
     let knock = o.knock ?? 0;
     let stun = o.stun ?? 0;
     let down = o.down ?? 0;
+    // Wrestlers drag foes to the ground.
+    if (
+      byPlayer &&
+      o.combo &&
+      p.style === "wrestler" &&
+      o.sound === "punch" &&
+      this.rng.chance(0.25)
+    )
+      down = Math.max(down, 1);
     // Three basic hits in a row on the same foe: the third is a finisher.
     let finisher = false;
     if (byPlayer && o.combo) {
@@ -1431,6 +1514,7 @@ export class Game {
       return { ok: false, message: `You need $${def.price - p.cash} more.` };
     }
     p.cash -= def.price;
+    this.s.flags.hired = true;
     const old = this.s.partner ? PARTNERS[this.s.partner.id] : null;
     this.removeAlly();
     this.s.partner = { id: def.id, hp: this.partnerStats(def.id).stamina, out: false };
@@ -1739,6 +1823,7 @@ export class Game {
     }
     const pt = this.s.partner;
     if (pt && !pt.out && !this.s.bout) e.cash -= Math.round(e.cash * PARTNER_CUT);
+    if (!this.s.bout && this.isNight()) this.s.tally.nightKos++;
     this.log(
       `${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}"${e.cash > 0 ? ` (+$${e.cash})` : ""}`,
       e.color,
@@ -2292,6 +2377,14 @@ export class Game {
   // Resting
 
   /** Rests until healed or something shows up. Returns turns rested. */
+  /** A night's sleep: the clock jumps to 6:00 the next morning. */
+  private sleepUntilMorning(): void {
+    const { minute } = this.clock();
+    const until = (6 * 60 - minute + 1440) % 1440;
+    this.s.clock = (this.s.clock ?? 0) + until;
+    this.log("You sleep like a log and wake up as the sun comes up.", C.yellow);
+  }
+
   rest(): number {
     if (this.s.over) return 0;
     if (this.visibleEnemies().some((e) => e.awake || cheb(e, this.s.player) < 6)) {
@@ -2376,6 +2469,7 @@ export class Game {
     const item = ITEMS[itemId];
     if (!SHOPS[shopId]?.stock.includes(itemId) || !item)
       return { ok: false, message: "That's not sold here." };
+    if (!this.shopOpen(shopId)) return { ok: false, message: "It's closed right now." };
     if (item.kind === "book" && this.s.soldOut.includes(itemId))
       return { ok: false, message: "Sold out. You've read it already." };
     const price = this.priceOf(shopId, itemId);
@@ -2421,6 +2515,8 @@ export class Game {
     }
     this.sound(item.kind === "food" ? "eat" : "buy");
     this.log(`${item.name}: ${item.flavor}`, C.cyan);
+    if (item.kind === "food") this.s.tally.meals++;
+    if (itemId === "nap" && this.isNight()) this.sleepUntilMorning();
     const gains = this.applyConsumable(item);
     const statGain = gains.some((g) => !g.includes("health") && !g.includes("guts"));
     let message = gains.length ? gains.join(", ") : "Tasty, but it doesn't do much for you now.";
@@ -2495,6 +2591,91 @@ export class Game {
     const msg = `You learned ${t.name}!${key}`;
     this.log(msg, C.yellow);
     return { ok: true, message: msg };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Buses and quick travel
+
+  /** Towns the bus goes to from here: fare, and whether you can go yet. */
+  busRoutes(): { town: string; name: string; fare: number; ok: boolean; why?: string }[] {
+    const here = this.area.id;
+    return BUS_TOWNS.map((town, i) => {
+      const fare = Math.abs(i - BUS_TOWNS.indexOf(here)) * BUS_FARE;
+      const name = AREAS[town].name;
+      if (town === here) return { town, name, fare: 0, ok: false, why: "You're here" };
+      if (!this.s.visits[town])
+        return { town, name, fare, ok: false, why: "Haven't been there yet" };
+      return { town, name, fare, ok: true };
+    });
+  }
+
+  rideBus(town: string): { ok: boolean; message: string } {
+    const route = this.busRoutes().find((r) => r.town === town);
+    const p = this.s.player;
+    if (!route?.ok) return { ok: false, message: route?.why ?? "The bus doesn't go there." };
+    if (p.cash < route.fare) {
+      this.sound("deny");
+      return {
+        ok: false,
+        message: `The fare is $${route.fare}. You're $${route.fare - p.cash} short.`,
+      };
+    }
+    p.cash -= route.fare;
+    // The ride takes a while.
+    this.s.clock = (this.s.clock ?? 0) + BUS_MINUTES;
+    this.log(`You pay $${route.fare} and ride the bus to ${route.name}.`, C.cyan);
+    this.enterArea(town, "bus");
+    return { ok: true, message: "" };
+  }
+
+  /**
+   * Walks toward this area's way on (">") or back ("<") until you get there, get hurt, or spot
+   * someone new. Returns the steps taken.
+   */
+  travel(marker: ">" | "<"): number {
+    const a = this.area;
+    const exits = a.exits.filter((e) => e.marker === marker);
+    if (exits.length === 0) {
+      this.notice(
+        marker === ">" ? "There's no way on from here." : "There's no way back from here.",
+      );
+      return 0;
+    }
+    if (this.visibleEnemies().some((e) => e.awake)) {
+      this.notice("Not with trouble this close.");
+      return 0;
+    }
+    const p = this.s.player;
+    const dist = distanceMap(a.w, a.h, this.walk, exits);
+    let seen = this.visibleEnemies().length;
+    let steps = 0;
+    while (steps < 400 && !this.s.over && this.area === a) {
+      let best: Dir | null = null;
+      let bestD = dist[p.y * a.w + p.x];
+      for (const d of DIRS8) {
+        const x = p.x + d[0];
+        const y = p.y + d[1];
+        if (x < 0 || y < 0 || x >= a.w || y >= a.h) continue;
+        const v = dist[y * a.w + x];
+        const tile = this.tileAt(x, y);
+        if (v < 0 || v >= bestD || tile === T.DOOR || this.enemyAt(x, y)) continue;
+        if (!canStep(this.walk, p.x, p.y, d[0], d[1])) continue;
+        best = d;
+        bestD = v;
+      }
+      if (!best) break;
+      const hp = p.hp;
+      if (!this.move(best[0], best[1])) break;
+      steps++;
+      if (this.area !== a) break;
+      const now = this.visibleEnemies();
+      if (p.hp < hp || now.some((e) => e.awake) || now.length > seen) {
+        this.log("You stop. There's someone up ahead.", C.orange);
+        break;
+      }
+      seen = now.length;
+    }
+    return steps;
   }
 
   // -------------------------------------------------------------------------------------------
@@ -2964,7 +3145,7 @@ export class Game {
     }
     // Back out on the street, right where you went in.
     const back = b.back;
-    this.area = buildArea(back.area, s.seed, s.visits[back.area] ?? 1, s.flags);
+    this.area = buildArea(back.area, s.seed, s.visits[back.area] ?? 1, s.flags, this.isNight());
     this.visible = new Uint8Array(this.area.w * this.area.h);
     s.areaId = back.area;
     s.arrive = back.area === START_AREA ? "@" : "<";
@@ -3067,4 +3248,10 @@ export function jobText(job: Job, brief = false): string {
   const shop = SHOPS[job.to ?? ""]?.name ?? "a shop";
   if (brief) return `Take ${job.parcel} to ${shop}`;
   return `Take ${job.parcel} to ${shop} (${shopTown(job.to ?? "")})`;
+}
+
+/** Whether a clock time (minutes since the start of day 1) falls at night. */
+export function isNightAt(t: number): boolean {
+  const m = ((t % 1440) + 1440) % 1440;
+  return m >= NIGHT_FROM || m < NIGHT_TO;
 }

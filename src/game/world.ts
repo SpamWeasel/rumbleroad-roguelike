@@ -52,6 +52,7 @@ def({
     "7": "home",
     "8": "club_maple",
     "9": "board_maple",
+    H: "bus_maple",
   },
   exits: { ">": { to: "alleys", arrive: "<" } },
   intro: "Maple Street. Home. The gangs have been creeping closer every week.",
@@ -109,6 +110,7 @@ def({
     "7": "bath",
     "8": "club_harbor",
     "9": "board_harbor",
+    H: "bus_harbor",
   },
   exits: {
     "<": { to: "trainyard", arrive: ">" },
@@ -179,6 +181,7 @@ def({
     "6": "nightrx",
     "8": "club_neon",
     "9": "board_neon",
+    H: "bus_neon",
   },
   exits: { "<": { to: "pier9", arrive: ">" }, ">": { to: "park", arrive: "<" } },
   intro: "The Neon Strip. Buzzing signs, all-night food, and Crown Tower looming in the distance.",
@@ -351,7 +354,7 @@ export function parseStatic(map: string, doors: Record<string, string> = {}): St
       const i = y * w + x;
       if (LEGEND[ch] !== undefined) {
         tiles[i] = LEGEND[ch];
-      } else if (/[1-9]/.test(ch) || ch === "V") {
+      } else if (/[1-9]/.test(ch) || ch === "V" || ch === "H") {
         tiles[i] = T.DOOR;
         const shop = ch === "V" ? "v_vend" : doors[ch];
         if (shop) out.doors.set(i, shop);
@@ -491,6 +494,8 @@ export function buildArea(
   gameSeed: number,
   visit: number,
   flags: Record<string, boolean>,
+  /** At night random districts get extra gang members. */
+  night = false,
 ): Area {
   const d = AREAS[id];
   if (!d) throw new Error(`Unknown area ${id}`);
@@ -556,11 +561,11 @@ export function buildArea(
     start: startAt,
   };
 
-  if (!d.map && d.gang) spawnDistrictGangs(area, rng, d);
+  if (!d.map && d.gang) spawnDistrictGangs(area, rng, d, night);
   return area;
 }
 
-function spawnDistrictGangs(area: Area, rng: Rng, d: AreaDef): void {
+function spawnDistrictGangs(area: Area, rng: Rng, d: AreaDef, night: boolean): void {
   const walk = (x: number, y: number) => walkable(area.tiles[y * area.w + x]);
   const fromExits = distanceMap(area.w, area.h, walk, area.exits);
   const floor: number[] = [];
@@ -568,7 +573,7 @@ function spawnDistrictGangs(area: Area, rng: Rng, d: AreaDef): void {
     const t = area.tiles[i];
     if (walkable(t) && t !== T.DOOR && t !== T.EXIT && fromExits[i] > 12) floor.push(i);
   }
-  const groups = 3 + Math.floor(d.depth / 2) + rng.int(0, 2);
+  const groups = 3 + Math.floor(d.depth / 2) + rng.int(0, 2) + (night ? NIGHT_GROUPS : 0);
   const taken = new Set<number>();
   for (let g = 0; g < groups && floor.length > 0; g++) {
     const center = rng.pick(floor);
@@ -591,6 +596,9 @@ function spawnDistrictGangs(area: Area, rng: Rng, d: AreaDef): void {
     }
   }
 }
+
+/** Extra gang groups in random districts at night. */
+export const NIGHT_GROUPS = 1;
 
 export function hashString(s: string): number {
   let h = 2166136261;

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { ACHIEVEMENT_BY_ID } from "../src/game/data/achievements";
 import { ITEMS } from "../src/game/data/items";
 import { SHOPS } from "../src/game/data/shops";
 import { STYLES } from "../src/game/data/styles";
@@ -587,5 +588,119 @@ describe("0.4 features", () => {
     expect(loaded.s.partner).toBeNull();
     expect(loaded.s.plus).toBe(0);
     expect(loaded.s.tally.jobs).toBe(0);
+  });
+});
+
+describe("0.5 features", () => {
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    knockOut(e: Enemy): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+  /** Moves the clock to a time of day (minutes past midnight) on the current day. */
+  const setTime = (g: Game, minute: number) => {
+    g.s.clock += minute - g.clock().minute;
+  };
+
+  it("the clock runs a minute a turn, with nights from 21:00 to 5:00", () => {
+    const g = Game.create("Clock", "street", 31);
+    expect(g.clock()).toEqual({ day: 1, minute: 8 * 60, night: false });
+    setTime(g, 21 * 60);
+    expect(g.isNight()).toBe(true);
+    setTime(g, 4 * 60 + 59);
+    expect(g.isNight()).toBe(true);
+    setTime(g, 5 * 60);
+    expect(g.isNight()).toBe(false);
+    g.wait();
+    expect(g.clock().minute).toBe(5 * 60 + 1);
+  });
+
+  it("nights bring bigger, richer crews and close some shops", () => {
+    const crews = (night: boolean) => {
+      const g = Game.create("N", "street", 32);
+      setTime(g, night ? 23 * 60 : 12 * 60);
+      inside(g).enterArea("scrapyard", "<");
+      return g.area.enemies.filter((e) => !e.event).length;
+    };
+    expect(crews(true)).toBeGreaterThan(crews(false));
+    const g = Game.create("Shop", "street", 33);
+    setTime(g, 23 * 60);
+    expect(g.shopOpen("chapter")).toBe(false);
+    expect(g.shopOpen("rosa")).toBe(true);
+    expect(g.shopOpen("v_trench")).toBe(true);
+    expect(g.buy("chapter", "b_box").ok).toBe(false);
+    setTime(g, 12 * 60);
+    expect(g.shopOpen("v_trench")).toBe(false);
+  });
+
+  it("a nap at night sleeps until morning", () => {
+    const g = Game.create("Sleepy", "street", 34);
+    setTime(g, 22 * 60);
+    g.buy("home", "nap");
+    expect(g.clock().minute).toBe(6 * 60);
+    expect(g.clock().day).toBe(2);
+  });
+
+  it("buses go to towns you've reached, for a fare", () => {
+    const g = Game.create("Rider", "street", 35);
+    expect(g.rideBus("harbor").ok).toBe(false);
+    g.s.visits.harbor = 1;
+    g.player.cash = 20;
+    expect(g.rideBus("harbor").ok).toBe(true);
+    expect(g.area.id).toBe("harbor");
+    expect(g.player.cash).toBe(12);
+    // You step off next to the stop.
+    const stop = [...g.area.doors].find(([, id]) => id === "bus_harbor")?.[0] as number;
+    const sx = stop % g.area.w;
+    const sy = Math.floor(stop / g.area.w);
+    expect(Math.max(Math.abs(g.player.x - sx), Math.abs(g.player.y - sy))).toBeLessThanOrEqual(3);
+    expect(Game.load(g.save()).area.id).toBe("harbor");
+  });
+
+  it("quick travel walks across town to the next area", () => {
+    const g = Game.create("Walker", "street", 36);
+    const steps = g.travel(">");
+    expect(steps).toBeGreaterThan(10);
+    expect(g.area.id).toBe("alleys");
+    // In a district it stops when someone shows up.
+    g.travel(">");
+    expect(
+      g.area.id === "alleys" ? g.visibleEnemies().length > 0 || g.player.hp < g.maxHp() : true,
+    ).toBe(true);
+  });
+
+  it("the unlockable styles work", () => {
+    expect(STYLES.wrestler.unlock).toBe("champ");
+    expect(STYLES.runner.unlock).toBe("night_owl");
+    const g = Game.create("Runner", "street", 37, "normal", "runner");
+    setTime(g, 12 * 60);
+    const day = g.stat("agility");
+    setTime(g, 23 * 60);
+    expect(g.stat("agility")).toBe(day + 3);
+  });
+
+  it("achievements check the game they're given", () => {
+    const g = Game.create("Achiever", "street", 38);
+    const got = (id: string) => ACHIEVEMENT_BY_ID[id].check(g);
+    expect(got("first_ko")).toBe(false);
+    g.player.kos = 1;
+    expect(got("first_ko")).toBe(true);
+    g.s.flags.title_club_maple = true;
+    expect(got("champ")).toBe(true);
+    expect(got("triple")).toBe(false);
+    g.s.over = "won";
+    g.s.difficulty = "hard";
+    expect(got("hard")).toBe(true);
+  });
+
+  it("loads saves from 0.4 with the clock starting now", () => {
+    const g = Game.create("Old", "street", 39);
+    const old = JSON.parse(g.save());
+    old.version = 4;
+    delete old.clock;
+    old.tally = { jobs: 2, rescues: 1 };
+    const loaded = Game.load(JSON.stringify(old));
+    expect(loaded.s.clock).toBe(0);
+    expect(loaded.s.tally).toEqual({ jobs: 2, rescues: 1, meals: 0, nightKos: 0 });
   });
 });

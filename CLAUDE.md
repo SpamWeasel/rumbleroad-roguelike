@@ -49,6 +49,17 @@ Electron setup is copied from Hollowdeep.
 - **New Game+** (0.4): `Game.newGamePlus` keeps stats, moves, gear, cash, partner, books and
   title belts; `s.plus` makes `toughen` scale gang health (`PLUS_HEALTH`) and stats
   (`PLUS_STATS`). Save version 4 (0.3 saves upgrade). `s.tally` counts jobs and rescues.
+- **Clock** (0.5): a turn is a minute; `Game.clock()` = `DAY_START + turn + s.clock` (naps at night
+  push `s.clock` to 6:00). Night is 21:00-5:00: `buildArea(..., night)` adds `NIGHT_GROUPS` gang
+  groups to random districts, `NIGHT_CASH` richer; sight -3; `ShopDef.hours` closes shops
+  (`shopOpen`; `buy` refuses too). The play screen dims squares away from lamps/neon/doors.
+- **Buses** (0.5): door `H` in each town = `bus_*` shop; `rideBus` to visited towns
+  (`BUS_TOWNS`, `BUS_FARE` per stop), arriving with marker "bus" beside the stop.
+  `travel(">" | "<")` walks to an exit and stops when hurt or someone new is seen.
+- **Achievements** (0.5, `data/achievements.ts`): checks over a `Game`; the renderer runs
+  `checkAchievements` after every action and keeps them in the `profile` data file (across games).
+  `StyleDef.unlock` names the achievement a style needs (Wrestler: champ, Night Runner: night_owl).
+  Save version 5 (0.4 saves upgrade).
 - **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
   picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
@@ -71,6 +82,8 @@ Electron setup is copied from Hollowdeep.
   ~8,300 / ~6; Hard with partners ~11,900 / ~7. A partner must clearly help: in 0.4 testing one
   first slowed the bot down because it trailed behind and missed fights (fixed with pathing and
   catch-up). New Game+ 1 is won by the bot with 0-2 KOs, slowly (it grinds before bosses).
+- 0.5 with nights (the bot ignores the clock): Normal ~10,100 turns / ~6 KOs with partners,
+  ~12,000 / ~6.5 solo; Hard ~13,200 / ~8. All win. Night with 2 extra groups was too grindy.
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -81,7 +94,8 @@ Electron setup is copied from Hollowdeep.
 - The browser pane's screenshots can go stale; trust `pnpm smoke` screenshots for visuals.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
 - `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, partner,
-  sheet, street, ending, arena, bout and saves (backup recovery) screens silently with throwaway saves, writing screenshots and reports to
+  sheet, street, night, bus, help, achievements, ending, arena, bout and saves (backup
+  recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.
   `node scripts/smoke.mjs <path\to\RumbleRow.exe>` runs the same check on a packaged build.
 - `pnpm dist` builds into `release/<version>/`, for x64 and ARM64 each: a zip to unpack and run

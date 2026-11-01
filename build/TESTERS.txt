@@ -1,8 +1,23 @@
-RUMBLE ROW 0.4 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.5 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.5 - "CITY NIGHTS"
+--------------------------
+- Day and night: the clock (top right) runs a minute per move. From 21:00 to 5:00 the streets
+  are darker, gang crews are bigger and carry more cash, and some shops close (the bakery,
+  bookstore, juice bar, tea stand and some carts). A shady dealer only comes out at night.
+  Napping at home after dark sleeps until morning.
+- Bus stops (a blue B in each town) take you to any town you've already reached, for a few
+  dollars. No more walking back through cleared streets.
+- Quick travel: ] walks to the next area's exit and [ walks back toward town. It stops by itself
+  when someone shows up.
+- Achievements (on the title screen), kept across all your games. Two of them unlock new
+  fighting styles: the Wrestler and the Night Runner.
+- Your 0.4 save carries over.
 
 
 NEW IN 0.4 - "CREW"
@@ -75,6 +90,7 @@ Press ? in the game for every control (keys can be changed in Settings). The bas
   G / T ................. pick up / throw crates, trash cans, pipes...
   I ..................... pockets (snacks, bandages, firecrackers)
   R ..................... rest      O ..... your jobs      P ... character sheet
+  ] / [ ................. walk to the next exit / back toward town
   Esc ................... menu      F11 ... fullscreen
 
 Controller: stick or d-pad moves, A punch, B kick, X special, Y guard, LB wait,

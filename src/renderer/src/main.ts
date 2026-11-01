@@ -1,10 +1,12 @@
-import { Game } from "../../game/game";
+import { DAY_START, Game } from "../../game/game";
 import { walkable } from "../../game/tiles";
 import { App } from "./app";
+import { loadProfile } from "./profile";
 import { ArenaScreen } from "./screens/arena";
 import { BoardScreen } from "./screens/board";
+import { BusScreen } from "./screens/bus";
 import { CharacterScreen } from "./screens/character";
-import { EndScreen, startGame, TitleScreen } from "./screens/menus";
+import { AchievementsScreen, EndScreen, HelpScreen, startGame, TitleScreen } from "./screens/menus";
 import { ShopScreen } from "./screens/shop";
 import { loadSettings } from "./settings";
 import { listSlots, readSlot, writeSlot } from "./storage";
@@ -16,7 +18,7 @@ window.addEventListener("unhandledrejection", (e) => errors.push(String(e.reason
 void boot();
 
 async function boot(): Promise<void> {
-  await loadSettings();
+  await Promise.all([loadSettings(), loadProfile()]);
   const canvas = document.getElementById("screen") as HTMLCanvasElement;
   const app = new App(canvas);
   app.reset(new TitleScreen(app));
@@ -78,6 +80,24 @@ async function smoke(app: App, scene: string): Promise<void> {
       play.flush();
       if (scene === "shop") app.push(new ShopScreen(app, "rosa"));
       if (scene === "arena") app.push(new ArenaScreen(app, "club_maple", play));
+      if (scene === "help") app.push(new HelpScreen(app));
+      if (scene === "achievements") app.push(new AchievementsScreen(app));
+      if (scene === "bus") {
+        const g = app.game as Game;
+        g.s.visits.harbor = 1;
+        g.player.cash = 50;
+        app.push(new BusScreen(app, "bus_maple", play));
+      }
+      if (scene === "night") {
+        // Maple Street after dark, with a closed bookstore and a partner.
+        const g = app.game as Game;
+        g.player.cash = 300;
+        g.hirePartner("ironside");
+        g.s.clock = 23 * 60 - DAY_START - g.s.turn;
+        if (!g.isNight()) errors.push("clock did not reach night");
+        if (g.shopOpen("chapter")) errors.push("bookstore open at night");
+        play.flush();
+      }
       if (scene === "partner") {
         // Ironside Gym, on the Partner tab.
         (app.game as Game).player.cash = 300;

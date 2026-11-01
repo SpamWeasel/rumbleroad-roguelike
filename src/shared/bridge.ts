@@ -17,7 +17,7 @@ export const IPC = {
 
 export const SAVE_SLOTS = 3;
 /** Small data files kept beside the saves. */
-export const DATA_FILES = ["settings", "records"] as const;
+export const DATA_FILES = ["settings", "records", "profile"] as const;
 export type DataFile = (typeof DATA_FILES)[number];
 
 export interface AppInfo {
