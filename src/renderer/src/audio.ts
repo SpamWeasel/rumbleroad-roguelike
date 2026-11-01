@@ -3,13 +3,45 @@ import type { SoundId } from "../../game/types";
 /** Small synthesized sound effects; nothing is loaded from disk. */
 let ctx: AudioContext | null = null;
 let master: GainNode | null = null;
+let musicGain: GainNode | null = null;
 let muted = false;
 /** 0-1. */
 let volume = 0.7;
+let musicVolume = 0.5;
 
 export function setVolume(value: number): void {
   volume = Math.max(0, Math.min(1, value));
   if (master) master.gain.value = volume;
+}
+
+export function setMusicVolume(value: number): void {
+  musicVolume = Math.max(0, Math.min(1, value));
+  if (musicGain) musicGain.gain.value = musicVolume * 0.5;
+}
+
+/** The shared audio context and the music bus, or null when audio is off or unavailable. */
+export function musicBus(): { ctx: AudioContext; out: GainNode } | null {
+  if (muted || musicVolume <= 0) return null;
+  const a = context();
+  return a && musicGain ? { ctx: a, out: musicGain } : null;
+}
+
+function context(): AudioContext | null {
+  try {
+    if (!ctx) {
+      ctx = new AudioContext();
+      master = ctx.createGain();
+      master.gain.value = volume;
+      master.connect(ctx.destination);
+      musicGain = ctx.createGain();
+      musicGain.gain.value = musicVolume * 0.5;
+      musicGain.connect(ctx.destination);
+    }
+    if (ctx.state === "suspended") void ctx.resume();
+    return ctx;
+  } catch {
+    return null;
+  }
 }
 
 export function setMuted(value: boolean): void {
@@ -21,18 +53,8 @@ export function isMuted(): boolean {
 
 function audio(): AudioContext | null {
   if (muted) return null;
-  try {
-    if (!ctx) {
-      ctx = new AudioContext();
-      master = ctx.createGain();
-      master.gain.value = volume;
-      master.connect(ctx.destination);
-    }
-    if (ctx.state === "suspended") void ctx.resume();
-    return volume > 0 ? ctx : null;
-  } catch {
-    return null;
-  }
+  const a = context();
+  return a && volume > 0 ? a : null;
 }
 
 function tone(

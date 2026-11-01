@@ -1,4 +1,5 @@
 import type { Color } from "./colors";
+import type { StyleId } from "./data/styles";
 
 export const STAT_KEYS = ["punch", "kick", "strength", "agility", "defense", "guts"] as const;
 export type StatKey = (typeof STAT_KEYS)[number];
@@ -104,6 +105,8 @@ export interface Fighter {
 
 export interface Player extends Fighter {
   name: string;
+  /** Fighting style picked at the start (data/styles.ts). */
+  style: StyleId;
   base: Stats;
   guts: number;
   cash: number;
@@ -147,12 +150,20 @@ export interface Enemy extends Fighter {
   heldUses?: number;
   /** Flag set when this boss is beaten. */
   flag?: string;
+  /** Which gang they run with. */
+  gang?: string;
+  /** The bounty job this enemy is the target of. */
+  job?: string;
+  /** Part of a street event ("shakedown", "ambush", "rival"). */
+  event?: string;
 }
 
 export type GroundItem =
   | { kind: "cash"; x: number; y: number; amount: number }
   | { kind: "object"; x: number; y: number; id: string }
-  | { kind: "item"; x: number; y: number; id: string };
+  | { kind: "item"; x: number; y: number; id: string }
+  /** A bystander being shaken down (index into BYSTANDERS). */
+  | { kind: "npc"; x: number; y: number; who: number };
 
 export interface Exit {
   x: number;

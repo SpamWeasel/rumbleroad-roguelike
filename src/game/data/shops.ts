@@ -1,6 +1,15 @@
 import { C, type Color } from "../colors";
 
-export type ShopKind = "food" | "store" | "gear" | "books" | "gym" | "service" | "vendor" | "arena";
+export type ShopKind =
+  | "food"
+  | "store"
+  | "gear"
+  | "books"
+  | "gym"
+  | "service"
+  | "vendor"
+  | "arena"
+  | "board";
 
 export interface ShopDef {
   id: string;
@@ -56,7 +65,10 @@ const shops: ShopDef[] = [
   { id: "v_icecream", name: "Ice Cream Cart", sign: "", kind: "vendor", color: C.pink, glyph: "i", greet: "A little bell jingles.", stock: ["icecream", "popsicle", "shake"] },
   { id: "v_trench", name: "Guy in a Trench Coat", sign: "", kind: "vendor", color: C.purple, glyph: "?", greet: "\"Psst. Wanna buy some... stuff?\"", stock: ["knockoffs", "chainwallet", "firecracker", "salts", "bandage"] },
 
-  // Hidden fight clubs (see data/arena.ts)
+  // Job boards (see data/jobs.ts) and hidden fight clubs (see data/arena.ts)
+  { id: "board_maple", name: "Maple Street Job Board", sign: "", kind: "board", color: C.yellow, glyph: "≡", greet: "A corkboard crowded with flyers, phone numbers and WANTED posters.", stock: [] },
+  { id: "board_harbor", name: "Harbor Job Board", sign: "", kind: "board", color: C.yellow, glyph: "≡", greet: "Salt-stained notices flap in the wind. Somebody always needs a hand.", stock: [] },
+  { id: "board_neon", name: "Neon Strip Job Board", sign: "", kind: "board", color: C.yellow, glyph: "≡", greet: "A glowing screen scrolls requests between ads for the arcade.", stock: [] },
   { id: "club_maple", name: "The Boiler Room", sign: "", kind: "arena", color: C.red, glyph: "!", greet: "A bouncer looks you up and down. \"Fighting or watching?\"", stock: [] },
   { id: "club_harbor", name: "The Bilge", sign: "", kind: "arena", color: C.red, glyph: "!", greet: "Sailors crowd a rope ring in a flooded warehouse, waving cash.", stock: [] },
   { id: "club_neon", name: "The Velvet Pit", sign: "", kind: "arena", color: C.red, glyph: "!", greet: "Velvet ropes, cigar smoke, and a ring under hot spotlights.", stock: [] },

@@ -6,7 +6,11 @@
 import { BOSSES } from "../src/game/data/enemies";
 import { ITEMS } from "../src/game/data/items";
 import { SHOPS } from "../src/game/data/shops";
+import type { StyleId } from "../src/game/data/styles";
 import { TECHNIQUES } from "../src/game/data/techniques";
+
+let botTakesJobs = true;
+
 import { Game } from "../src/game/game";
 import { canStep, distanceMap } from "../src/game/grid";
 import { T, walkable } from "../src/game/tiles";
@@ -37,6 +41,11 @@ export interface RunReport {
   trips: number;
   stats: Record<string, number>;
   techniques: string[];
+  /** Jobs taken and finished. */
+  jobs: number;
+  jobsDone: number;
+  /** Times the rival was beaten. */
+  rivalWins: number;
   /** Snapshots when each town was first reached. */
   snapshots: Record<string, string>;
 }
@@ -48,8 +57,11 @@ export function playGame(
   seed: number,
   maxTurns = 60000,
   difficulty: Difficulty = "normal",
+  style: StyleId = "allround",
+  takeJobs = true,
 ): RunReport {
-  const g = Game.create("Bot", "street", seed, difficulty);
+  const g = Game.create("Bot", "street", seed, difficulty, style);
+  botTakesJobs = takeJobs;
   const r: RunReport = {
     seed,
     turns: 0,
@@ -65,6 +77,9 @@ export function playGame(
     stats: {},
     techniques: [],
     snapshots: {},
+    jobs: 0,
+    jobsDone: 0,
+    rivalWins: 0,
   };
   let mode: "push" | "retreat" = "push";
   let shoppedIn: unknown = null;
@@ -123,6 +138,8 @@ export function playGame(
   r.won = g.s.over === "won";
   r.kos = g.player.kos;
   r.techniques = [...g.player.techniques];
+  r.jobsDone = r.jobs - g.s.jobs.length;
+  r.rivalWins = g.s.rival.wins;
   for (const k of ALL_STATS) r.stats[k] = g.stat(k);
   return r;
 
@@ -317,6 +334,12 @@ function shop(g: Game, r: RunReport): void {
   // Free or cheap full heals.
   if (town === "maple") buy("home", "nap");
   else if (town === "harbor" && p.hp < g.maxHp() * 0.8) buy("bath", "soak");
+  // Bounties and clean-ups from the job board (deliveries need walking around, so skip those).
+  for (const s of shops) {
+    if (s.kind !== "board" || !botTakesJobs) continue;
+    for (const job of g.boardOffers(s.id))
+      if (job.kind !== "courier" && g.takeJob(s.id, job.id).ok) r.jobs++;
+  }
   // Techniques first: they're the big power jumps.
   for (const s of shops) {
     for (const id of s.gym?.techniques ?? []) {

@@ -22,6 +22,7 @@ export const ACTIONS = [
   "pockets",
   "rest",
   "log",
+  "jobs",
   "help",
   "menu",
 ] as const;
@@ -47,6 +48,7 @@ export const ACTION_LABEL: Record<Action, string> = {
   pockets: "Pockets",
   rest: "Rest",
   log: "Message log",
+  jobs: "Jobs",
   help: "Help",
   menu: "Menu",
 };
@@ -83,6 +85,7 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   pockets: ["KeyI"],
   rest: ["KeyR"],
   log: ["KeyM"],
+  jobs: ["KeyO"],
   help: ["Slash", "F1", "KeyH"],
   menu: ["Escape"],
 };
@@ -91,6 +94,8 @@ export interface Settings {
   version: 1;
   /** 0-10. */
   volume: number;
+  /** 0-10. */
+  music: number;
   textSize: "normal" | "large";
   fullscreen: boolean;
   shake: boolean;
@@ -100,6 +105,7 @@ export interface Settings {
 const defaults = (): Settings => ({
   version: 1,
   volume: 7,
+  music: 5,
   textSize: "normal",
   fullscreen: false,
   shake: true,
@@ -115,6 +121,8 @@ export async function loadSettings(): Promise<void> {
     const saved = JSON.parse(text) as Partial<Settings>;
     if (typeof saved.volume === "number")
       settings.volume = Math.max(0, Math.min(10, Math.round(saved.volume)));
+    if (typeof saved.music === "number")
+      settings.music = Math.max(0, Math.min(10, Math.round(saved.music)));
     if (saved.textSize === "large" || saved.textSize === "normal")
       settings.textSize = saved.textSize;
     if (typeof saved.fullscreen === "boolean") settings.fullscreen = saved.fullscreen;

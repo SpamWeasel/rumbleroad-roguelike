@@ -2,8 +2,10 @@ import { C, type Color } from "./colors";
 import { BET_ODDS, CLUBS } from "./data/arena";
 import { BOSSES, GANGS, KO_BARKS, SPOT_BARKS } from "./data/enemies";
 import { ITEMS, type ItemDef } from "./data/items";
+import { BOARDS, BYSTANDERS, CLIENTS, type Job, PARCELS, RIVAL, WANTED_NAMES } from "./data/jobs";
 import { OBJECTS } from "./data/objects";
 import { SHOPS } from "./data/shops";
+import { STYLES, type StyleId } from "./data/styles";
 import { TECHNIQUES } from "./data/techniques";
 import { computeFov, lineOfFire } from "./fov";
 import { canStep, distanceMap } from "./grid";
@@ -35,8 +37,13 @@ import {
 } from "./types";
 import { AREAS, buildArea, hashString, makeGangMember, reserveEnemyIds, START_AREA } from "./world";
 
-/** Version 2 added difficulty, fight-club bouts and saving in the middle of an area. */
-export const SAVE_VERSION = 2;
+/**
+ * Version 2 added difficulty, fight-club bouts and saving in the middle of an area.
+ * Version 3 added fighting styles, jobs and the rival.
+ */
+export const SAVE_VERSION = 3;
+/** Jobs you can hold at once. */
+export const MAX_JOBS = 3;
 export const POCKET_SIZE = 8;
 
 const COST = {
@@ -70,6 +77,12 @@ export interface GameState {
   snapshot?: AreaSnapshot;
   /** A fight-club bout in progress. */
   bout?: BoutState | null;
+  /** Jobs taken from town job boards. */
+  jobs: Job[];
+  /** Ids of board postings already taken (so they don't show up again that visit). */
+  jobsTaken: string[];
+  /** Meetings with your rival: how many, how many you won, and the turn of the last one. */
+  rival: { met: number; wins: number; last: number };
 }
 
 export interface AreaSnapshot {
@@ -138,20 +151,28 @@ export class Game {
     this.chase = new Int32Array(0);
   }
 
-  static create(name: string, mode: Mode, seed: number, difficulty: Difficulty = "normal"): Game {
+  static create(
+    name: string,
+    mode: Mode,
+    seed: number,
+    difficulty: Difficulty = "normal",
+    styleId: StyleId = "allround",
+  ): Game {
+    const style = STYLES[styleId] ?? STYLES.allround;
     const player: Player = {
       id: 0,
       x: 0,
       y: 0,
-      hp: 50,
+      hp: style.base.stamina,
       time: 0,
       stun: 0,
       down: 0,
       name: name.trim() || "Kid",
-      base: { punch: 6, kick: 6, strength: 6, agility: 6, defense: 6, guts: 6, stamina: 50 },
-      guts: 12,
-      cash: 25,
-      pockets: ["candy", "candy"],
+      style: style.id,
+      base: { ...style.base },
+      guts: 6 + style.base.guts,
+      cash: style.cash,
+      pockets: [...style.pockets],
       gear: {},
       techniques: [],
       selected: 0,
@@ -180,6 +201,9 @@ export class Game {
       over: null,
       difficulty,
       bout: null,
+      jobs: [],
+      jobsTaken: [],
+      rival: { met: 0, wins: 0, last: 0 },
     };
     const game = new Game(state);
     game.placeAtArrival("@");
@@ -199,6 +223,14 @@ export class Game {
       // 0.1 saves: no difficulty, and they always resumed at the area's entrance.
       state.difficulty = "normal";
       state.bout = null;
+      state.version = 2;
+    }
+    if (state.version === 2) {
+      // 0.2 saves: everyone was an all-rounder, with no jobs or rival yet.
+      if (state.player) state.player.style = "allround";
+      state.jobs = [];
+      state.jobsTaken = [];
+      state.rival = { met: 0, wins: 0, last: state.turn ?? 0 };
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -229,7 +261,7 @@ export class Game {
   summary(): string {
     const p = this.s.player;
     const mode = this.s.mode === "permadeath" ? ", permadeath" : "";
-    return `${p.name} - ${this.area.name} - ${DIFFICULTY[this.s.difficulty].label}${mode} - ${p.kos} KOs`;
+    return `${p.name} the ${STYLES[p.style]?.name ?? "Fighter"} - ${this.area.name} - ${DIFFICULTY[this.s.difficulty].label}${mode} - ${p.kos} KOs`;
   }
 
   /** Gang members get tougher or softer with the difficulty. */
@@ -404,6 +436,7 @@ export class Game {
       const b = BOSSES[d.boss];
       this.log(`${b.name}, ${b.title}: ${b.taunt}`, b.color);
     }
+    this.populateStreet();
     this.sound("door");
     this.events.push({ type: "area" });
   }
@@ -531,6 +564,7 @@ export class Game {
       const shop = this.area.doors.get(ny * this.area.w + nx);
       if (shop) {
         this.sound("door");
+        this.deliver(shop);
         this.events.push({ type: "shop", shop });
       }
       return false;
@@ -586,7 +620,7 @@ export class Game {
           this.sound("coin");
           this.area.items.splice(this.area.items.indexOf(it), 1);
         }
-      } else {
+      } else if (it.kind === "object") {
         this.log(`There's a ${OBJECTS[it.id].name} here. (G to pick up)`, C.gray);
       }
     }
@@ -610,7 +644,7 @@ export class Game {
       this.area.items.splice(this.area.items.indexOf(obj), 1);
       const def = OBJECTS[obj.id];
       p.held = obj.id;
-      p.heldUses = def.swing?.uses ?? 0;
+      p.heldUses = Math.round((def.swing?.uses ?? 0) * (p.style === "brawler" ? 1.5 : 1));
       this.log(
         def.swing
           ? `You pick up the ${def.name}. Your punches swing it now. (T to throw)`
@@ -623,6 +657,11 @@ export class Game {
   }
 
   // ---- Attacks ----
+
+  /** Brawlers hit harder with whatever they pick up. */
+  private objectPower(): number {
+    return this.s.player.style === "brawler" ? 1.3 : 1;
+  }
 
   private punchRaw(): number {
     return (
@@ -653,7 +692,10 @@ export class Game {
       return false;
     }
     if (held?.swing) {
-      const raw = (held.swing.damage + this.stat("strength") * 0.6) * this.rng.range(0.85, 1.15);
+      const raw =
+        (held.swing.damage + this.stat("strength") * 0.6) *
+        this.objectPower() *
+        this.rng.range(0.85, 1.15);
       this.strike(p, target, raw, {
         dir,
         verb: `swing the ${held.name} at`,
@@ -668,7 +710,7 @@ export class Game {
     } else {
       this.strike(p, target, this.punchRaw(), { dir, verb: "punch", sound: "punch" });
     }
-    this.endAction(COST.punch);
+    this.endAction(this.s.player.style === "boxer" ? 82 : COST.punch);
     return true;
   }
 
@@ -688,7 +730,7 @@ export class Game {
       knock: 1,
       accuracy: -5,
     });
-    this.endAction(COST.kick);
+    this.endAction(this.s.player.style === "kicker" ? 100 : COST.kick);
     return true;
   }
 
@@ -979,7 +1021,10 @@ export class Game {
       this.events.push({ type: "flash", x, y, color: def.color });
     }
     if (hit) {
-      const raw = (def.thrown + this.stat("strength") * 0.6) * this.rng.range(0.85, 1.15);
+      const raw =
+        (def.thrown + this.stat("strength") * 0.6) *
+        this.objectPower() *
+        this.rng.range(0.85, 1.15);
       this.strike(p, hit, raw, {
         dir,
         verb: `nail with the ${def.name}`,
@@ -1363,10 +1408,16 @@ export class Game {
       }
       return;
     }
+    if (e.event === "rival") {
+      this.rivalBeaten(e, at);
+      return;
+    }
     this.log(
-      `${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}"${e.cash > 0 ? ` (+$${e.cash})` : ""}`,
+      `${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}"${e.cash > 0 ? ` (+${e.cash})` : ""}`,
       e.color,
     );
+    this.jobProgress(e, at);
+    this.eventProgress(e);
     this.pop(e.x, e.y, "KO", e.color);
     if (e.cash > 0) this.collectCash(e.cash, at);
     if (!this.s.bout && this.rng.chance(0.08) && this.walk(at.x, at.y)) {
@@ -1417,6 +1468,13 @@ export class Game {
     p.down = 0;
     p.held = null;
     p.buffs = [];
+    for (const job of this.s.jobs.filter((j) => j.kind === "courier")) {
+      this.log(
+        `The parcel for ${SHOPS[job.to ?? ""]?.name ?? "the shop"} is gone. Job failed.`,
+        C.orange,
+      );
+      this.s.jobs = this.s.jobs.filter((j) => j !== job);
+    }
     this.log(`You black out... You wake up back in town, $${lost} lighter.`, C.red);
     this.lastKoLoss = lost;
     const town = this.s.lastTown;
@@ -1429,7 +1487,12 @@ export class Game {
 
   private wake(e: Enemy, bark: boolean): void {
     e.awake = true;
-    if (bark && this.visible[e.y * this.area.w + e.x]) {
+    if (bark && e.event === "rival") {
+      this.log(
+        `${e.name}: ${RIVAL.hello[Math.min(this.s.rival.wins, RIVAL.hello.length - 1)]}`,
+        e.color,
+      );
+    } else if (bark && this.visible[e.y * this.area.w + e.x]) {
       this.log(`${e.name} the ${e.title}: "${this.rng.pick(SPOT_BARKS)}"`, e.color);
     }
     for (const o of this.area.enemies) if (!o.awake && cheb(o, e) <= 6) o.awake = true;
@@ -1471,7 +1534,14 @@ export class Game {
     }
 
     // Beaten-up small fry sometimes run.
-    if (!e.boss && e.kind !== "bruiser" && e.hp < e.maxHp * 0.2 && this.rng.chance(0.4)) {
+    if (
+      !e.boss &&
+      !e.job &&
+      e.kind !== "bruiser" &&
+      e.kind !== "rival" &&
+      e.hp < e.maxHp * 0.2 &&
+      this.rng.chance(0.4)
+    ) {
       if (this.stepAway(e)) {
         e.time += Math.round(100 * spd);
         return;
@@ -1511,7 +1581,11 @@ export class Game {
         this.log(`${e.name} winds up a huge swing! (step away or guard)`, C.orange);
         return 60;
       }
-      if (e.kind === "lieutenant" && e.cooldown === 0 && this.rng.chance(0.5)) {
+      if (
+        (e.kind === "lieutenant" || e.kind === "rival") &&
+        e.cooldown === 0 &&
+        this.rng.chance(0.5)
+      ) {
         e.cooldown = 5;
         this.log(`${e.name} unleashes a flurry!`, e.color);
         for (let i = 0; i < 3 && this.s.player.hp > 0 && cheb(e, p) === 1; i++)
@@ -1929,8 +2003,18 @@ export class Game {
   }
 
   priceOf(shopId: string, itemId: string): number {
-    const price = ITEMS[itemId].price;
-    return this.specialOf(shopId) === itemId ? Math.max(1, Math.round(price * 0.6)) : price;
+    let price = ITEMS[itemId].price;
+    if (this.specialOf(shopId) === itemId) price = Math.max(1, Math.round(price * 0.6));
+    // Hustlers haggle everything down a little.
+    if (this.s.player.style === "hustler" && price > 1)
+      price = Math.max(1, Math.round(price * 0.9));
+    return price;
+  }
+
+  /** What a technique costs you (all-rounders learn cheaper). */
+  techPrice(techId: string): number {
+    const price = TECHNIQUES[techId]?.price ?? 0;
+    return this.s.player.style === "allround" ? Math.round(price * 0.8) : price;
   }
 
   private possibleGains(item: ItemDef): AnyStat[] {
@@ -2044,7 +2128,8 @@ export class Game {
       ([k, v]) => this.stat(k) < v,
     );
     if (short.length) return `Needs ${short.map(([k, v]) => `${STAT_LABEL[k]} ${v}`).join(", ")}`;
-    if (p.cash < t.price) return `Need $${t.price - p.cash} more`;
+    const price = this.techPrice(techId);
+    if (p.cash < price) return `Need ${price - p.cash} more`;
     return null;
   }
 
@@ -2058,13 +2143,323 @@ export class Game {
     }
     const t = TECHNIQUES[techId];
     const p = this.s.player;
-    p.cash -= t.price;
+    p.cash -= this.techPrice(techId);
     p.techniques.push(techId);
     this.sound("levelup");
     const key = p.techniques.length <= 9 ? ` It's on key ${p.techniques.length}.` : "";
     const msg = `You learned ${t.name}!${key}`;
     this.log(msg, C.yellow);
     return { ok: true, message: msg };
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Job boards
+
+  /** The jobs posted on a board this visit (the same every time you look). */
+  boardOffers(boardId: string): Job[] {
+    const b = BOARDS[boardId];
+    if (!b) return [];
+    const visit = this.s.visits[b.town] ?? 1;
+    const rng = new Rng(hashSeed(this.s.seed, hashString(boardId), visit));
+    const round5 = (n: number) => Math.max(5, Math.round(n / 5) * 5);
+    const out: Job[] = [];
+    for (let i = 0; i < 3; i++) {
+      const id = `${boardId}:${visit}:${i}`;
+      const kind = rng.weighted<Job["kind"]>([
+        ["bounty", 4],
+        ["sweep", 3],
+        ["courier", 3],
+      ]);
+      const job: Job = { id, kind, board: boardId, client: rng.pick(CLIENTS), reward: 0 };
+      if (kind === "bounty") {
+        job.area = rng.pick(b.districts);
+        job.gang = AREAS[job.area].gang ?? b.gangs[0];
+        job.target = rng.pick(WANTED_NAMES);
+        job.reward = round5(rng.int(70, 100) * b.pay);
+      } else if (kind === "sweep") {
+        job.gang = rng.pick(b.gangs);
+        job.count = rng.int(6, 10);
+        job.progress = 0;
+        job.reward = round5(job.count * rng.int(7, 10) * b.pay);
+      } else {
+        job.to = rng.pick(b.deliveries);
+        job.parcel = rng.pick(PARCELS);
+        job.reward = round5(rng.int(90, 130) * b.pay);
+      }
+      if (!this.s.jobsTaken.includes(id)) out.push(job);
+    }
+    return out;
+  }
+
+  takeJob(boardId: string, jobId: string): { ok: boolean; message: string } {
+    const job = this.boardOffers(boardId).find((j) => j.id === jobId);
+    if (!job) return { ok: false, message: "Someone already took that one." };
+    if (this.s.jobs.length >= MAX_JOBS) {
+      this.sound("deny");
+      return { ok: false, message: `You can only juggle ${MAX_JOBS} jobs. Finish or drop one.` };
+    }
+    this.s.jobs.push(job);
+    this.s.jobsTaken.push(job.id);
+    this.sound("buy");
+    const msg = `Job taken: ${jobText(job)}`;
+    this.log(msg, C.yellow);
+    return { ok: true, message: msg };
+  }
+
+  dropJob(jobId: string): void {
+    const job = this.s.jobs.find((j) => j.id === jobId);
+    if (!job) return;
+    this.s.jobs = this.s.jobs.filter((j) => j !== job);
+    this.log(
+      job.kind === "courier"
+        ? `You drop off the parcel back at the board. Job abandoned.`
+        : "You give up on the job.",
+      C.gray,
+    );
+  }
+
+  private completeJob(job: Job, at: { x: number; y: number }, how: string): void {
+    this.s.jobs = this.s.jobs.filter((j) => j !== job);
+    this.s.player.cash += job.reward;
+    this.log(`${how} Job done! ${job.client} pays you $${job.reward}.`, C.gold);
+    this.pop(at.x, at.y - 1, `+$${job.reward}`, C.gold);
+    this.sound("levelup");
+  }
+
+  /** Bounties and sweeps move along when gang members go down. */
+  private jobProgress(e: Enemy, at: { x: number; y: number }): void {
+    if (e.job) {
+      const job = this.s.jobs.find((j) => j.id === e.job);
+      if (job) this.completeJob(job, at, `${e.name} won't be bothering anyone now.`);
+    }
+    if (this.s.bout || !e.gang) return;
+    for (const job of [...this.s.jobs]) {
+      if (job.kind !== "sweep" || job.gang !== e.gang) continue;
+      job.progress = (job.progress ?? 0) + 1;
+      if (job.progress >= (job.count ?? 0))
+        this.completeJob(job, at, `That's ${job.count} ${GANGS[job.gang].name} down.`);
+      else this.notice(`Job: ${job.progress}/${job.count} ${GANGS[job.gang].name} knocked out.`);
+    }
+  }
+
+  /** Walking into a shop with a parcel for it delivers the parcel. */
+  private deliver(shopId: string): void {
+    const p = this.s.player;
+    for (const job of this.s.jobs.filter((j) => j.kind === "courier" && j.to === shopId))
+      this.completeJob(job, p, `You hand over ${job.parcel}.`);
+  }
+
+  /** Free squares at least `min` steps from you, furthest first (shuffled within a band). */
+  private farSpots(min: number): { x: number; y: number }[] {
+    const a = this.area;
+    const dist = distanceMap(a.w, a.h, this.walk, [this.s.player]);
+    const spots: { x: number; y: number; d: number }[] = [];
+    for (let i = 0; i < dist.length; i++) {
+      if (dist[i] < min) continue;
+      const x = i % a.w;
+      const y = (i - x) / a.w;
+      if (this.free(x, y) && !a.items.some((it) => it.x === x && it.y === y))
+        spots.push({ x, y, d: dist[i] });
+    }
+    this.rng.shuffle(spots);
+    return spots;
+  }
+
+  /** Free squares within `r` of a spot. */
+  private spotsNear(c: { x: number; y: number }, r: number): { x: number; y: number }[] {
+    const out: { x: number; y: number }[] = [];
+    for (let dy = -r; dy <= r; dy++)
+      for (let dx = -r; dx <= r; dx++) {
+        const x = c.x + dx;
+        const y = c.y + dy;
+        if ((dx || dy) && this.free(x, y)) out.push({ x, y });
+      }
+    this.rng.shuffle(out);
+    return out;
+  }
+
+  /** Brings in this area's bounty targets and maybe a street event. Called on arrival. */
+  private populateStreet(): void {
+    const a = this.area;
+    if (this.s.bout || (a.kind !== "district" && a.kind !== "static")) return;
+    for (const job of this.s.jobs) {
+      if (job.kind !== "bounty" || job.area !== a.id || !job.gang) continue;
+      const spot = this.farSpots(18)[0] ?? this.farSpots(8)[0];
+      if (!spot) continue;
+      const pay = BOARDS[job.board]?.pay ?? 1;
+      const boss = makeGangMember(this.rng, job.gang, "lieutenant", a.depth + 1, spot.x, spot.y);
+      boss.name = job.target ?? boss.name;
+      boss.title = `Wanted ${GANGS[job.gang].titles.lieutenant}`;
+      boss.glyph = "W";
+      boss.color = C.red;
+      boss.maxHp = Math.round(boss.maxHp * 1.5);
+      boss.hp = boss.maxHp;
+      for (const k of ALL_STATS)
+        if (k !== "stamina") boss.stats[k] = Math.round(boss.stats[k] * 1.1);
+      boss.cash += Math.round(10 * pay);
+      boss.job = job.id;
+      this.toughen(boss);
+      a.enemies.push(boss);
+      for (const s of this.spotsNear(spot, 2).slice(0, this.rng.int(1, 2))) {
+        const pal = makeGangMember(
+          this.rng,
+          job.gang,
+          this.rng.pick(["punk", "scrapper"] as const),
+          a.depth,
+          s.x,
+          s.y,
+        );
+        this.toughen(pal);
+        a.enemies.push(pal);
+      }
+      this.log(`Word is ${boss.name} hangs around here. (Bounty: $${job.reward})`, C.yellow);
+    }
+    if (a.kind === "district") this.streetEvent();
+  }
+
+  private streetEvent(): void {
+    const a = this.area;
+    const r = this.s.rival;
+    const rivalDue = r.wins < RIVAL.wins && a.depth >= 2 && this.s.turn - r.last >= RIVAL.gap;
+    if (rivalDue && this.rng.chance(0.5)) {
+      this.spawnRival();
+      return;
+    }
+    if (!this.rng.chance(0.45)) return;
+    const kind = this.rng.weighted([
+      ["shakedown", 5],
+      ["ambush", 3],
+      ["wallet", 2],
+    ] as const);
+    const gang = a.gang ?? "rats";
+    if (kind === "shakedown") {
+      const spot = this.farSpots(14)[0];
+      if (!spot) return;
+      const who = this.rng.int(0, BYSTANDERS.length - 1);
+      const around = this.spotsNear(spot, 2).slice(0, this.rng.int(2, 3));
+      if (around.length < 2) return;
+      a.items.push({ kind: "npc", x: spot.x, y: spot.y, who });
+      for (const s of around) {
+        const e = makeGangMember(
+          this.rng,
+          gang,
+          this.rng.pick(["punk", "scrapper", "bruiser"] as const),
+          a.depth,
+          s.x,
+          s.y,
+        );
+        e.event = "shakedown";
+        this.toughen(e);
+        a.enemies.push(e);
+      }
+      this.log("Somewhere down the street, someone yells for help!", C.yellow);
+    } else if (kind === "ambush") {
+      const p = this.s.player;
+      const spots = this.farSpots(5).filter((s) => cheb(s, p) <= 9);
+      for (const s of spots.slice(0, 3)) {
+        const e = makeGangMember(
+          this.rng,
+          gang,
+          this.rng.pick(["punk", "scrapper", "slinger"] as const),
+          a.depth,
+          s.x,
+          s.y,
+        );
+        e.event = "ambush";
+        e.awake = true;
+        e.cash = Math.round(e.cash * 1.5);
+        this.toughen(e);
+        a.enemies.push(e);
+      }
+      if (spots.length) this.log("Footsteps all around you. It's an ambush!", C.orange);
+    } else {
+      const spot = this.farSpots(16)[0];
+      if (!spot) return;
+      const amount = Math.round((10 + 7 * a.depth) * this.rng.range(0.8, 1.3));
+      a.items.push({ kind: "cash", x: spot.x, y: spot.y, amount });
+    }
+  }
+
+  /** People rescued from a shakedown pay you back. */
+  private eventProgress(e: Enemy): void {
+    const a = this.area;
+    if (e.event !== "shakedown" || a.enemies.some((o) => o.event === "shakedown")) return;
+    const npc = a.items.find((i) => i.kind === "npc");
+    if (npc?.kind !== "npc") return;
+    a.items.splice(a.items.indexOf(npc), 1);
+    const who = BYSTANDERS[npc.who] ?? BYSTANDERS[0];
+    const p = this.s.player;
+    const cash = Math.round((12 + 8 * a.depth) * this.rng.range(0.8, 1.2));
+    p.cash += cash;
+    this.log(`${who.name}: ${who.thanks} (+$${cash})`, who.color);
+    this.pop(npc.x, npc.y - 1, `+$${cash}`, C.gold);
+    this.sound("coin");
+    const gift = this.rng.pick(["bandage", "energy", "candy", "soda", "firecracker", "salts"]);
+    if (p.pockets.length < POCKET_SIZE) {
+      p.pockets.push(gift);
+      this.log(`${who.name} also slips you a ${ITEMS[gift].name}.`, C.lime);
+    }
+    if (who.name.startsWith("Dr.")) {
+      p.hp = Math.min(this.maxHp(), p.hp + 25);
+      this.log("She patches up your cuts. (+25 health)", C.lime);
+    }
+  }
+
+  private spawnRival(): void {
+    const a = this.area;
+    const r = this.s.rival;
+    const spot = this.farSpots(14)[0] ?? this.farSpots(8)[0];
+    if (!spot) return;
+    const e = makeGangMember(this.rng, a.gang ?? "rats", "lieutenant", a.depth, spot.x, spot.y);
+    // He keeps pace with you, getting a little closer every time.
+    const level = 0.84 + 0.04 * r.wins;
+    for (const k of STAT_KEYS) e.stats[k] = Math.max(3, Math.round(this.stat(k) * level));
+    e.stats.stamina = Math.round(this.maxHp() * (0.85 + 0.05 * r.wins));
+    e.maxHp = e.stats.stamina;
+    e.hp = e.maxHp;
+    e.kind = "rival";
+    e.name = RIVAL.name;
+    e.title = RIVAL.title;
+    e.glyph = RIVAL.glyph;
+    e.color = RIVAL.color;
+    e.ai = "quick";
+    e.cash = 0;
+    e.gang = undefined;
+    e.event = "rival";
+    a.enemies.push(e);
+    r.met++;
+    r.last = this.s.turn;
+    this.log(
+      r.met === 1
+        ? "Someone is leaning on a wall down the street, watching you. Trouble."
+        : `${RIVAL.name} is around here somewhere. You can feel it.`,
+      RIVAL.color,
+    );
+  }
+
+  private rivalBeaten(e: Enemy, at: { x: number; y: number }): void {
+    const r = this.s.rival;
+    const p = this.s.player;
+    r.wins++;
+    const line = RIVAL.beaten[Math.min(r.wins, RIVAL.beaten.length) - 1];
+    this.log(`${RIVAL.name} goes down! ${line}`, RIVAL.color);
+    this.pop(e.x, e.y, "KO", RIVAL.color);
+    this.events.push({ type: "impact", power: 2 });
+    const purse = Math.round((30 + 20 * r.wins) * (1 + 0.25 * this.area.depth));
+    this.collectCash(purse, at);
+    this.log(`A crowd watched the whole thing. They toss you $${purse}.`, C.gold);
+    if (r.wins >= RIVAL.wins) {
+      const prize = ITEMS.rivalband;
+      const old = p.gear.charm;
+      const refund = old ? Math.floor(ITEMS[old].price / 4) : 0;
+      p.cash += refund;
+      p.gear.charm = prize.id;
+      this.sound("levelup");
+      this.log(
+        `You put on ${prize.name} (${describeBonus(prize.stats ?? {})}).${old ? ` Your ${ITEMS[old].name} sells for $${refund}.` : ""}`,
+        C.yellow,
+      );
+    }
   }
 
   // -------------------------------------------------------------------------------------------
@@ -2306,4 +2701,22 @@ export function describeItem(item: ItemDef): string {
   if (item.revive) parts.push("auto-revive when KO'd");
   if (item.lucky) parts.push("maybe lucky");
   return parts.join(", ");
+}
+
+/** Which town a shop is in, by name. */
+export function shopTown(shopId: string): string {
+  for (const a of Object.values(AREAS))
+    if (a.doors && Object.values(a.doors).includes(shopId)) return a.name;
+  return "";
+}
+
+/** One line describing a job, e.g. for the board and the jobs list. */
+export function jobText(job: Job, brief = false): string {
+  if (job.kind === "bounty")
+    return `WANTED: ${job.target} (${GANGS[job.gang ?? ""]?.name ?? "gang"}) in ${AREAS[job.area ?? ""]?.name ?? "town"}`;
+  if (job.kind === "sweep")
+    return `Knock out ${job.count} ${GANGS[job.gang ?? ""]?.name ?? "gang members"} (${job.progress ?? 0}/${job.count})`;
+  const shop = SHOPS[job.to ?? ""]?.name ?? "a shop";
+  if (brief) return `Take ${job.parcel} to ${shop}`;
+  return `Take ${job.parcel} to ${shop} (${shopTown(job.to ?? "")})`;
 }

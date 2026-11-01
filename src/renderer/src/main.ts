@@ -1,6 +1,8 @@
 import { Game } from "../../game/game";
+import { walkable } from "../../game/tiles";
 import { App } from "./app";
 import { ArenaScreen } from "./screens/arena";
+import { BoardScreen } from "./screens/board";
 import { startGame, TitleScreen } from "./screens/menus";
 import { ShopScreen } from "./screens/shop";
 import { loadSettings } from "./settings";
@@ -57,8 +59,13 @@ async function smoke(app: App, scene: string): Promise<void> {
         "ArrowDown",
         "ArrowDown",
         "ArrowDown",
+        "ArrowDown",
         "Enter",
       ])
+        window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+    } else if (scene === "create") {
+      // Title > New Game (the first option while there are no saves), then pick Boxer.
+      for (const code of ["Enter", "ArrowDown", "ArrowRight"])
         window.dispatchEvent(new KeyboardEvent("keydown", { code }));
     } else if (scene === "settings") {
       // Title > Settings (Settings is the 2nd or 3rd option depending on saves).
@@ -70,6 +77,46 @@ async function smoke(app: App, scene: string): Promise<void> {
       play.flush();
       if (scene === "shop") app.push(new ShopScreen(app, "rosa"));
       if (scene === "arena") app.push(new ArenaScreen(app, "club_maple", play));
+      if (scene === "board") {
+        const g = app.game as Game;
+        const first = g.boardOffers("board_maple")[0];
+        if (!first || !g.takeJob("board_maple", first.id).ok) errors.push("could not take a job");
+        app.push(new BoardScreen(app, "board_maple"));
+      }
+      if (scene === "street") {
+        // A district with a job on the go, a shakedown and the rival about.
+        const g = app.game as Game;
+        for (const job of g.boardOffers("board_maple")) g.takeJob("board_maple", job.id);
+        const inside = g as unknown as {
+          enterArea(id: string, arrive: string): void;
+          spawnRival(): void;
+        };
+        for (let i = 0; i < 40 && !g.area.items.some((it) => it.kind === "npc"); i++)
+          inside.enterArea("alleys", "<");
+        inside.spawnRival();
+        for (const e of g.area.enemies) e.awake = e.event === "rival" || e.event === "shakedown";
+        // Walk toward the trouble so it shows on screen.
+        const npc = g.area.items.find((it) => it.kind === "npc");
+        if (!npc) errors.push("no shakedown happened");
+        else {
+          let best: { x: number; y: number } | null = null;
+          for (let dy = -5; dy <= 5; dy++)
+            for (let dx = -5; dx <= 5; dx++) {
+              const x = npc.x + dx;
+              const y = npc.y + dy;
+              const far = Math.max(Math.abs(dx), Math.abs(dy)) >= 4;
+              if (far && !best && walkable(g.tileAt(x, y)) && !g.enemyAt(x, y)) best = { x, y };
+            }
+          if (best) {
+            g.player.x = best.x;
+            g.player.y = best.y;
+          }
+          // Lit up so the screenshot shows everything.
+          g.area.lit = true;
+          g.updateView();
+        }
+        play.flush();
+      }
       if (scene === "bout") {
         const g = app.game as Game;
         g.player.cash = 100;

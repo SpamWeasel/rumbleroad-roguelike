@@ -6,7 +6,7 @@
  *   | fence        U dumpster        C parked car    B bench       L lamp    F fountain
  *   O pillar       _ counter         X crates        R rail track  P platform
  *   Y open pit     I girder
- *   1-9 shop doors (named per map; 8 is the hidden fight club)   V vending machine
+ *   1-9 shop doors (named per map; 8 is the hidden fight club, 9 the job board)   V vending machine
  *   < > ^ v exits   @ new-game start
  *   e gang member  E lieutenant      & the area's boss
  *   c crate  t trash can  p pipe  b bat  k brick  r tire  n chain
@@ -17,7 +17,7 @@ export const MAPLE = `
 #"T""T"###############%%%%%%%%%%%%%%tc##############WWWWWWWWWWWWWW"T"#
 #""""""###############%%%%%%%%%%%%%%..##############WWWWWWWWWWWWWW"""#
 #""B"""###############%%%%%%%%%%%%%%..##############WWWWWWWWWWWWWW"""#
-#""""""######1########%%%%%%2%%%%%%%..######3#######WWWWWW7WWWWWWW"""#
+#""""""######1####9###%%%%%%2%%%%%%%..######3#######WWWWWW7WWWWWWW"""#
 #....L.........L.........L.........L.........L.........L.............#
 #,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,>
 #,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,-->
@@ -57,7 +57,7 @@ export const HARBOR = `
 #WWWWWWWWWWWWWW##############WWWWWWWWWWWWWW%%%%%%%%%%%%%%%%#####..""T"#
 #WWWWWWWWWWWWWW##############WWWWWWWWWWWWWW%%%%%%%%%%%%%%%%#####..""""#
 #WWWWWWWWWWWWWW##############WWWWWWWWWWWWWW%%%%%%%%%%%%%%%%####8..T"""#
-#WWWWWW1WWWWWWW######2#######WWWWWW3WWWWWWW%%%%%%%4%%%%%%%%#####..""""#
+#WWWWWW1WWWWWWW######2###9###WWWWWW3WWWWWWW%%%%%%%4%%%%%%%%#####..""""#
 #.....L.........L.........L.........L.........L.........L.............#
 <,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,>
 <,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,>
@@ -123,7 +123,7 @@ export const NEON = `
 #NNNNNNNNNNNNNN%%%%%%%%%%%%%%%NNNNNNNNNNNNNNN###############NNNNNNNNNNN#
 #NNNNNNNNNNNNNN%%%%%%%%%%%%%%%NNNNNNNNNNNNNNN###############NNNNNNNNNNN#
 #NNNNNNNNNNNNNN%%%%%%%%%%%%%%%NNNNNNNNNNNNNNN###############NNNNNNNNNNN#
-#NNNNNN1NNNNNNN%%%%%%%2%%%%%%%NNNNNNN3NNNNNNN#######4#######NNNNNVNNNNN#
+#NNNNNN1NNNNNNN%%%%%%%2%%%%%%%NNNNNNN3NNNNNNN##9####4#######NNNNNVNNNNN#
 #.....L.........L.........L.........L.........L.........L..............#
 <,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,>
 <,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,>

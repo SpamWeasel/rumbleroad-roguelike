@@ -1,10 +1,13 @@
 // Plays several full games with the balance bot and prints how each one went.
-// Usage: pnpm exec tsx scripts/balance.mts [runs] [maxTurns]
+// Usage: pnpm exec tsx scripts/balance.mts [runs] [maxTurns] [difficulty] [style] [nojobs]
+import type { StyleId } from "../src/game/data/styles";
 import { playGame } from "../tests/bot";
 
 const runs = Number(process.argv[2] ?? 6);
 const maxTurns = Number(process.argv[3] ?? 60000);
 const difficulty = (process.argv[4] ?? "normal") as "easy" | "normal" | "hard";
+const style = (process.argv[5] ?? "allround") as StyleId;
+const jobs = process.argv[6] !== "nojobs";
 const route = [
   "maple",
   "alleys",
@@ -24,11 +27,11 @@ const route = [
 
 const reports = [];
 for (let i = 0; i < runs; i++) {
-  const r = playGame(1000 + i * 7, maxTurns, difficulty);
+  const r = playGame(1000 + i * 7, maxTurns, difficulty, style, jobs);
   reports.push(r);
   const far = route.filter((a) => r.reached[a] !== undefined).pop();
   console.log(
-    `\nseed ${r.seed}: ${r.won ? "WON" : `reached ${far}`} in ${r.turns} turns, ${r.deaths} KOs taken, ${r.kos} enemies KO'd, ${r.trips} town visits`,
+    `\nseed ${r.seed}: ${r.won ? "WON" : `reached ${far}`} in ${r.turns} turns, ${r.deaths} KOs taken, ${r.kos} enemies KO'd, ${r.trips} town visits, jobs ${r.jobsDone}/${r.jobs}, rival beaten ${r.rivalWins}x`,
   );
   console.log(
     `  reached: ${route

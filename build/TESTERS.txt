@@ -1,8 +1,22 @@
-RUMBLE ROW 0.2 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.3 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.3 - "STREET LIFE"
+--------------------------
+- Fighting styles: start as an All-Rounder, Boxer, Street Kicker, Brawler or Hustler.
+  Each has its own stats and a perk.
+- Job boards in every town (a yellow ≡ door): bounties on wanted fighters, gang clean-ups and
+  parcel deliveries. Hold up to 3 at once; press O to see yours. You're paid on the spot.
+- Street events: rescue people being shaken down by gangs, survive ambushes, find lost cash.
+- Your rival, Dex Marlowe, turns up on the streets now and then, a little stronger each time.
+  Beat him five times for a prize.
+- Chiptune music for the title, towns, streets, fight clubs and boss fights, with its own
+  volume in Settings.
+- Your 0.2 save carries over (as an All-Rounder).
 
 
 NEW IN 0.2
@@ -47,7 +61,8 @@ Press ? in the game for every control (keys can be changed in Settings). The bas
   Space ................. guard
   G / T ................. pick up / throw crates, trash cans, pipes...
   I ..................... pockets (snacks, bandages, firecrackers)
-  R ..................... rest      Esc ... menu      F11 ... fullscreen
+  R ..................... rest      O ..... your jobs
+  Esc ................... menu      F11 ... fullscreen
 
 Controller: stick or d-pad moves, A punch, B kick, X special, Y guard, LB wait,
 RB next special, LT grab, RT throw, View pockets, Menu button for the menu.

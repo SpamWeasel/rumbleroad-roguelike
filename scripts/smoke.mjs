@@ -7,7 +7,20 @@ import { existsSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createRequire } from "node:module";
 import { resolve } from "node:path";
 
-const SCENES = ["keys", "title", "settings", "game", "shop", "arena", "bout", "saves"];
+// keys and create must run before any scene that writes a save (they rely on an empty title menu).
+const SCENES = [
+  "keys",
+  "create",
+  "title",
+  "settings",
+  "game",
+  "shop",
+  "board",
+  "street",
+  "arena",
+  "bout",
+  "saves",
+];
 
 const outDir = resolve(".smoke");
 rmSync(outDir, { recursive: true, force: true });

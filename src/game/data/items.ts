@@ -148,6 +148,8 @@ const items: ItemDef[] = [
   { id: "goldengloves", name: "Golden Gloves", kind: "gear", slot: "hands", price: 300, stats: { punch: 6, kick: 2 }, flavor: "Won fair and square in the Maple Street ring." },
   { id: "anchorbelt", name: "Anchor Belt", kind: "gear", slot: "charm", price: 600, stats: { guts: 5, strength: 4, defense: 3 }, flavor: "The Harbor Hammer's old title belt." },
   { id: "neonjacket", name: "Neon Champion Jacket", kind: "gear", slot: "body", price: 1200, stats: { defense: 14, agility: 3 }, flavor: "It glows. Everyone knows who you are." },
+  // ---- Earned on the street (never sold) ----
+  { id: "rivalband", name: "Dex's Headband", kind: "gear", slot: "charm", price: 400, stats: { punch: 3, kick: 3, agility: 2, guts: 3 }, flavor: "Your old rival's lucky headband. He insisted." },
 ];
 
 export const ITEMS: Record<string, ItemDef> = Object.fromEntries(items.map((i) => [i.id, i]));

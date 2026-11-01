@@ -1,12 +1,13 @@
 import { describe, expect, it } from "vitest";
 import { ITEMS } from "../src/game/data/items";
 import { SHOPS } from "../src/game/data/shops";
+import { STYLES } from "../src/game/data/styles";
 import { TECHNIQUES } from "../src/game/data/techniques";
 import { Game } from "../src/game/game";
 import { generateDistrict } from "../src/game/generate";
 import { distanceMap } from "../src/game/grid";
 import { T, walkable } from "../src/game/tiles";
-import { DIRS8, type Enemy } from "../src/game/types";
+import { DIRS8, type Enemy, STAT_KEYS } from "../src/game/types";
 import { AREAS, buildArea, parseStatic } from "../src/game/world";
 import { playGame } from "./bot";
 
@@ -310,5 +311,155 @@ describe("0.2 features", () => {
     g.area.items.push({ kind: "object", x: e.x, y: e.y, id: "pipe" });
     inside(g).enemyAct(e);
     expect(e.held).toBe("pipe");
+  });
+});
+
+describe("0.3 features", () => {
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    knockOut(e: Enemy): void;
+    damage(f: unknown, n: number): void;
+    spawnRival(): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+
+  it("every fighting style spreads the same 36 points", () => {
+    for (const style of Object.values(STYLES)) {
+      const sum = STAT_KEYS.reduce((n, k) => n + style.base[k], 0);
+      expect(sum, style.id).toBe(36);
+      const g = Game.create("S", "street", 1, "normal", style.id);
+      expect(g.player.base.punch).toBe(style.base.punch);
+      expect(g.player.hp).toBe(style.base.stamina);
+      expect(g.player.cash).toBe(style.cash);
+    }
+  });
+
+  it("style perks change prices", () => {
+    const hustler = Game.create("H", "street", 2, "normal", "hustler");
+    const boxer = Game.create("B", "street", 2, "normal", "boxer");
+    const allround = Game.create("A", "street", 2, "normal", "allround");
+    expect(hustler.priceOf("bolt", "hightops")).toBeLessThan(boxer.priceOf("bolt", "hightops"));
+    expect(allround.techPrice("haymaker")).toBeLessThan(boxer.techPrice("haymaker"));
+  });
+
+  it("job boards post the same three jobs each look, and hold at most three", () => {
+    const g = Game.create("Jobs", "street", 3);
+    const offers = g.boardOffers("board_maple");
+    expect(offers.length).toBe(3);
+    expect(g.boardOffers("board_maple")).toEqual(offers);
+    for (const job of offers) expect(g.takeJob("board_maple", job.id).ok).toBe(true);
+    expect(g.boardOffers("board_maple").length).toBe(0);
+    expect(g.s.jobs.length).toBe(3);
+    // A save keeps them.
+    expect(Game.load(g.save()).s.jobs.length).toBe(3);
+  });
+
+  it("a sweep pays out when enough of the gang is down", () => {
+    const g = Game.create("Sweeper", "street", 4);
+    g.s.jobs.push({
+      id: "s",
+      kind: "sweep",
+      board: "board_maple",
+      client: "c",
+      reward: 50,
+      gang: "rats",
+      count: 2,
+      progress: 0,
+    });
+    inside(g).enterArea("alleys", "<");
+    const cash = g.player.cash;
+    const rats = g.area.enemies.filter((e) => e.gang === "rats").slice(0, 2);
+    const loot = rats.reduce((n, e) => n + e.cash, 0);
+    for (const e of rats) inside(g).knockOut(e);
+    expect(g.s.jobs.length).toBe(0);
+    expect(g.player.cash).toBe(cash + loot + 50);
+  });
+
+  it("a bounty target waits in its district and pays when knocked out", () => {
+    const g = Game.create("Hunter", "street", 5);
+    g.s.jobs.push({
+      id: "b",
+      kind: "bounty",
+      board: "board_maple",
+      client: "c",
+      reward: 80,
+      area: "scrapyard",
+      gang: "rats",
+      target: "Test Target",
+    });
+    inside(g).enterArea("scrapyard", "<");
+    const target = g.area.enemies.find((e) => e.job === "b") as Enemy;
+    expect(target.name).toBe("Test Target");
+    const cash = g.player.cash;
+    inside(g).knockOut(target);
+    expect(g.s.jobs.length).toBe(0);
+    expect(g.player.cash).toBe(cash + target.cash + 80);
+  });
+
+  it("parcels are delivered by walking into the shop, and lost on a knock-out", () => {
+    const g = Game.create("Courier", "street", 6);
+    const parcel = {
+      kind: "courier" as const,
+      board: "board_harbor",
+      client: "c",
+      reward: 100,
+      to: "rosa",
+      parcel: "a cake tin",
+    };
+    g.s.jobs.push({ id: "c1", ...parcel });
+    const door = [...g.area.doors].find(([, shop]) => shop === "rosa")?.[0] as number;
+    g.player.x = door % g.area.w;
+    g.player.y = Math.floor(door / g.area.w) + 1;
+    const cash = g.player.cash;
+    g.move(0, -1);
+    expect(g.s.jobs.length).toBe(0);
+    expect(g.player.cash).toBe(cash + 100);
+    g.s.jobs.push({ id: "c2", ...parcel });
+    inside(g).enterArea("alleys", "<");
+    inside(g).damage(g.player, 9999);
+    expect(g.s.jobs.length).toBe(0);
+  });
+
+  it("rescuing someone from a shakedown pays you back", () => {
+    const g = Game.create("Hero", "street", 7);
+    let found = false;
+    for (let i = 0; i < 40 && !found; i++) {
+      inside(g).enterArea("alleys", "<");
+      found = g.area.items.some((it) => it.kind === "npc");
+    }
+    expect(found).toBe(true);
+    const cash = g.player.cash;
+    const gang = g.area.enemies.filter((e) => e.event === "shakedown");
+    const loot = gang.reduce((n, e) => n + e.cash, 0);
+    for (const e of gang) inside(g).knockOut(e);
+    expect(g.area.items.some((it) => it.kind === "npc")).toBe(false);
+    expect(g.player.cash).toBeGreaterThan(cash + loot);
+  });
+
+  it("the rival keeps pace with you and hands over his headband after five losses", () => {
+    const g = Game.create("Me", "street", 8, "normal", "boxer");
+    inside(g).enterArea("scrapyard", "<");
+    for (let n = 0; n < 5; n++) {
+      inside(g).spawnRival();
+      const dex = g.area.enemies.find((e) => e.event === "rival") as Enemy;
+      expect(dex.stats.punch).toBeGreaterThanOrEqual(Math.round(g.stat("punch") * 0.8));
+      inside(g).knockOut(dex);
+    }
+    expect(g.s.rival.wins).toBe(5);
+    expect(g.player.gear.charm).toBe("rivalband");
+  });
+
+  it("loads saves from 0.2 as an all-rounder with no jobs", () => {
+    const g = Game.create("Old", "street", 9, "normal", "boxer");
+    const old = JSON.parse(g.save());
+    old.version = 2;
+    delete old.jobs;
+    delete old.jobsTaken;
+    delete old.rival;
+    delete old.player.style;
+    const loaded = Game.load(JSON.stringify(old));
+    expect(loaded.player.style).toBe("allround");
+    expect(loaded.s.jobs).toEqual([]);
+    expect(loaded.s.rival.wins).toBe(0);
   });
 });

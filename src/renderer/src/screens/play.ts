@@ -1,6 +1,7 @@
 import { C } from "../../../game/colors";
 import { BOSSES } from "../../../game/data/enemies";
 import { ITEMS } from "../../../game/data/items";
+import { BYSTANDERS } from "../../../game/data/jobs";
 import { OBJECTS } from "../../../game/data/objects";
 import { SHOPS } from "../../../game/data/shops";
 import { TECHNIQUES } from "../../../game/data/techniques";
@@ -15,6 +16,7 @@ import { addRecord } from "../records";
 import { ACTION_DIR, actionFor, keyName, settings } from "../settings";
 import type { Term } from "../term";
 import { ArenaScreen } from "./arena";
+import { BoardScreen, JobsScreen } from "./board";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
 import { ShopScreen } from "./shop";
@@ -127,6 +129,9 @@ export class PlayScreen implements Screen {
         return;
       case "log":
         this.app.push(new LogScreen(this.app));
+        return;
+      case "jobs":
+        this.app.push(new JobsScreen(this.app));
         return;
       case "help":
         this.app.push(new HelpScreen(this.app));
@@ -268,8 +273,14 @@ export class PlayScreen implements Screen {
     if (area) void this.app.save();
     else this.app.autosave();
     if (shop) {
-      const arena = SHOPS[shop]?.kind === "arena";
-      this.app.push(arena ? new ArenaScreen(this.app, shop, this) : new ShopScreen(this.app, shop));
+      const kind = SHOPS[shop]?.kind;
+      this.app.push(
+        kind === "arena"
+          ? new ArenaScreen(this.app, shop, this)
+          : kind === "board"
+            ? new BoardScreen(this.app, shop)
+            : new ShopScreen(this.app, shop),
+      );
     }
   }
 
@@ -425,6 +436,7 @@ export class PlayScreen implements Screen {
       if (!inView(sx, sy)) continue;
       if (it.kind === "cash") t.put(sx, sy, "$", C.gold);
       else if (it.kind === "object") t.put(sx, sy, OBJECTS[it.id].glyph, OBJECTS[it.id].color);
+      else if (it.kind === "npc") t.put(sx, sy, "☺", BYSTANDERS[it.who]?.color ?? C.light);
       else t.put(sx, sy, ITEMS[it.id]?.kind === "food" ? "%" : "!", C.lime);
     }
     // Wind-up warnings.
@@ -598,7 +610,7 @@ export class PlayScreen implements Screen {
     const foes = g.visibleEnemies();
     t.text(x + 1, y++, foes.length ? "IN SIGHT" : "All quiet.", foes.length ? C.orange : C.dim);
     for (const e of foes) {
-      if (y >= (g.s.bout ? 34 : 36)) break;
+      if (y >= (g.s.bout || g.s.jobs.length ? 34 : 36)) break;
       t.put(x + 1, y, e.glyph, e.color);
       const label = e.boss ? e.name : `${e.name}`;
       t.text(x + 3, y, label, e.boss ? e.color : C.light, undefined, x + 16);
@@ -635,6 +647,17 @@ export class PlayScreen implements Screen {
         36,
         `Round ${bout.round} of ${bout.rounds}${bet}`,
         C.yellow,
+        undefined,
+        x + SIDE_W,
+      );
+    } else if (g.s.jobs.length) {
+      const n = g.s.jobs.length;
+      t.text(x + 1, 35, `${n} job${n > 1 ? "s" : ""} on the go`, C.yellow, undefined, x + SIDE_W);
+      t.text(
+        x + 1,
+        36,
+        `${keyName(settings.keys.jobs[0])} to see them`,
+        C.gray,
         undefined,
         x + SIDE_W,
       );
@@ -723,6 +746,7 @@ export class PlayScreen implements Screen {
       if (e.down > 0) notes.push("knocked down");
       if (!e.awake) notes.push("hasn't noticed you");
       if (e.held) notes.push(`holding a ${OBJECTS[e.held].name}`);
+      if (e.job) notes.push("bounty target");
       if (notes.length) out.push({ text: notes.join(", "), color: e.windup ? C.red : C.amber });
       return out;
     }
@@ -734,7 +758,12 @@ export class PlayScreen implements Screen {
             text: `A ${OBJECTS[it.id].name} (grab it, then swing or throw)`,
             color: C.light,
           });
-        else out.push({ text: `${ITEMS[it.id].name} (walk over it to pocket it)`, color: C.lime });
+        else if (it.kind === "npc") {
+          const who = BYSTANDERS[it.who] ?? BYSTANDERS[0];
+          out.push({ text: `${who.name}, ${who.what}`, color: who.color });
+          out.push({ text: "Being shaken down! Knock out the gang around them.", color: C.amber });
+        } else
+          out.push({ text: `${ITEMS[it.id].name} (walk over it to pocket it)`, color: C.lime });
       }
     }
     const shopId = a.doors.get(y * a.w + x);
@@ -749,6 +778,7 @@ export class PlayScreen implements Screen {
         service: "Services",
         vendor: "Street vendor",
         arena: "Underground fight club",
+        board: "Job board - bounties, deliveries, odd jobs",
       };
       out.push({ text: shop.name, color: shop.color });
       out.push({ text: kinds[shop.kind] ?? "", color: C.gray });

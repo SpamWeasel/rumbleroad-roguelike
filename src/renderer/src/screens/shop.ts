@@ -230,7 +230,8 @@ export class ShopScreen implements Screen {
       t.text(x + 2, yy, sel ? "►" : " ", C.yellow, sel ? C.dark : undefined);
       t.text(x + 4, yy, tech.name, blocker === "Learned" ? C.dim : C.white);
       t.text(x + 22, yy, `${tech.guts} guts`, C.amber);
-      t.text(x + 32, yy, `$${tech.price}`, g.player.cash >= tech.price ? C.gold : C.red);
+      const price = g.techPrice(id);
+      t.text(x + 32, yy, `${price}`, g.player.cash >= price ? C.gold : C.red);
       t.text(
         x + 40,
         yy,

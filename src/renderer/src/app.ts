@@ -1,6 +1,7 @@
 import type { Game } from "../../game/game";
-import { play, setVolume } from "./audio";
+import { play, setMusicVolume, setVolume } from "./audio";
 import { GamepadInput } from "./gamepad";
+import { music, type TrackId } from "./music";
 import { saveSettings, settings } from "./settings";
 import { deleteSlot, writeSlot, writeSlotNow } from "./storage";
 import { Term } from "./term";
@@ -61,6 +62,7 @@ export class App {
     window.addEventListener("resize", resize);
     resize();
     setVolume(settings.volume / 10);
+    setMusicVolume(settings.music / 10);
     window.addEventListener("keydown", (e) => {
       if (e.code === "F11") {
         e.preventDefault();
@@ -107,6 +109,7 @@ export class App {
       this.pad.poll(now, !!top?.playing, (code, repeat, shift) =>
         this.dispatch(fakeKey(code, repeat, shift)),
       );
+      music.play(this.musicFor());
       const shaking = now < this.shakeUntil;
       if (top && (this.dirty || shaking || top.animating?.(now))) {
         this.dirty = false;
@@ -126,6 +129,17 @@ export class App {
       requestAnimationFrame(frame);
     };
     requestAnimationFrame(frame);
+  }
+
+  /** Which tune fits what is on screen. */
+  private musicFor(): TrackId | null {
+    const g = this.game;
+    if (!g || !this.stack.some((s) => s.playing)) return "title";
+    if (g.s.over) return g.s.over === "won" ? "town" : null;
+    const a = g.area;
+    if (a.kind === "arena") return "arena";
+    if (a.enemies.some((e) => (e.boss || e.event === "rival") && e.awake)) return "boss";
+    return a.kind === "town" || a.id === "lighthouse" ? "town" : "street";
   }
 
   private dispatch(e: KeyboardEvent): void {

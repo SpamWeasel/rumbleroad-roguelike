@@ -51,6 +51,7 @@ def({
     "6": "chapter",
     "7": "home",
     "8": "club_maple",
+    "9": "board_maple",
   },
   exits: { ">": { to: "alleys", arrive: "<" } },
   intro: "Maple Street. Home. The gangs have been creeping closer every week.",
@@ -107,6 +108,7 @@ def({
     "6": "riptide",
     "7": "bath",
     "8": "club_harbor",
+    "9": "board_harbor",
   },
   exits: {
     "<": { to: "trainyard", arrive: ">" },
@@ -176,6 +178,7 @@ def({
     "5": "dojo",
     "6": "nightrx",
     "8": "club_neon",
+    "9": "board_neon",
   },
   exits: { "<": { to: "pier9", arrive: ">" }, ">": { to: "park", arrive: "<" } },
   intro: "The Neon Strip. Buzzing signs, all-night food, and Crown Tower looming in the distance.",
@@ -430,6 +433,7 @@ export function makeGangMember(
     cash: Math.round(rng.int(r.cash[0], r.cash[1]) * sc.cash),
     boss: false,
     cooldown: rng.int(2, 6),
+    gang: gangId,
   };
 }
 

@@ -71,6 +71,8 @@ function start(): void {
       sandbox: false,
       nodeIntegration: false,
       backgroundThrottling: false,
+      // The title music starts right away instead of waiting for a key press.
+      autoplayPolicy: "no-user-gesture-required",
       additionalArguments: smokeScreenshot ? [`--smoke-scene=${smokeScene}`] : [],
     },
   });
@@ -79,6 +81,8 @@ function start(): void {
   window.webContents.on("will-navigate", (event, url) => {
     if (!url.startsWith(trustedPagePrefix)) event.preventDefault();
   });
+  // Smoke tests run silently.
+  if (smokeScreenshot) window.webContents.setAudioMuted(true);
   if (devServerUrl) void window.loadURL(devServerUrl);
   else void window.loadFile(rendererFile);
 

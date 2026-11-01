@@ -28,6 +28,18 @@ Electron setup is copied from Hollowdeep.
   for every newly spawned enemy) and enemy damage in `strike`/throws.
 - **Fight clubs**: `data/arena.ts` (bouts) + door `8` in each town + `arena_*` areas. Losing a
   bout is never a real knock-out, even on Permadeath. Champion prizes are one-time gear.
+- **Fighting styles** (0.3, `data/styles.ts`): same 36 stat points spread differently, one perk
+  each, checked in game.ts by `player.style` (boxer/kicker attack costs, brawler `objectPower`,
+  hustler `priceOf`, all-rounder `techPrice`). Save version 3; `Game.load` upgrades 0.2 saves.
+- **Jobs** (0.3, `data/jobs.ts`): door `9` in each town is a board. `boardOffers` is seeded by
+  board + town visit; `takeJob` (max 3), paid in `completeJob`. Bounty targets spawn on arrival
+  (`populateStreet`), sweeps count in `jobProgress`, parcels deliver in `move` and are lost on a
+  street knock-out.
+- **Street events** (`streetEvent`, districts only): shakedown (an `npc` ground item plus gang
+  tagged `event`), ambush, lost cash, and the rival Dex (`spawnRival`, scaled from your stats,
+  at most every `RIVAL.gap` turns; 5 wins = his headband).
+- **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
+  picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
   (`renderer/src/settings.ts`); play input goes through `actionFor`, menus keep arrows/Enter/Esc.
   Controller buttons are turned into the same key presses (`gamepad.ts`).
@@ -38,8 +50,11 @@ Electron setup is copied from Hollowdeep.
 
 - `pnpm exec tsx scripts/balance.mts [runs] [maxTurns]` plays whole games with the bot in
   `tests/bot.ts` and prints turns, knock-outs per area, boss timings and spending.
-- Targets as of 0.2 (6 seeds each, `balance.mts 6 40000 <easy|normal|hard>`): every run wins.
-  Easy ~7,500 turns / ~5 knock-outs, Normal ~12,000 / ~10, Hard ~15,500 / ~19.
+- `balance.mts [runs] [maxTurns] [difficulty] [style] [nojobs]`. The bot takes bounties and
+  clean-ups (not deliveries) from boards.
+- Targets as of 0.3 (6 seeds, Normal, with jobs): every run wins with every style, all within
+  ~9,800-12,600 turns (All-Rounder ~9,800 / ~7 KOs; without jobs ~10,900 / ~11). Hard
+  All-Rounder ~13,000 / ~16. Boxer is the style to watch (punch cost 82, punch 8).
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -49,8 +64,8 @@ Electron setup is copied from Hollowdeep.
 - `pnpm check` = typecheck + Biome (pinned 2.5.15; 2.6.x crashes on this ARM64 PC) + tests.
 - The browser pane's screenshots can go stale; trust `pnpm smoke` screenshots for visuals.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
-- `pnpm smoke` builds, then launches keys, title, settings, game, shop, arena, bout and saves
-  (backup recovery) screens silently with throwaway saves, writing screenshots and reports to
+- `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, street,
+  arena, bout and saves (backup recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.
   `node scripts/smoke.mjs <path\to\RumbleRow.exe>` runs the same check on a packaged build.
 - `pnpm dist` builds into `release/<version>/`, for x64 and ARM64 each: a zip to unpack and run

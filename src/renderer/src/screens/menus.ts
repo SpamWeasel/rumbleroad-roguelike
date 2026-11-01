@@ -1,9 +1,10 @@
 import { C } from "../../../game/colors";
+import { STYLE_ORDER, STYLES, type StyleId } from "../../../game/data/styles";
 import { Game } from "../../../game/game";
 import { DIFFICULTY, type Difficulty, type Mode } from "../../../game/types";
 import { SAVE_SLOTS, type SlotInfo } from "../../../shared/bridge";
 import type { App, Screen } from "../app";
-import { setVolume } from "../audio";
+import { setMusicVolume, setVolume } from "../audio";
 import { isBack, isDown, isLeft, isRight, isUp } from "../input";
 import { loadRecords, type RunRecord } from "../records";
 import {
@@ -18,6 +19,7 @@ import {
 } from "../settings";
 import { appInfo, copyText, deleteSlot, listSlots, readSlot } from "../storage";
 import { COLS, ROWS, Term } from "../term";
+import { JobsScreen } from "./board";
 import { PlayScreen } from "./play";
 
 const LOGO = String.raw`
@@ -190,6 +192,7 @@ export class TitleScreen implements Screen {
 
 class CreateScreen implements Screen {
   private name = "";
+  private style: StyleId = "allround";
   private mode: Mode = "street";
   private difficulty: Difficulty = "normal";
   private slot: number;
@@ -214,16 +217,19 @@ class CreateScreen implements Screen {
       return;
     }
     if (e.code === "ArrowUp" || e.code === "ArrowDown") {
-      this.row = (this.row + (e.code === "ArrowUp" ? 3 : 1)) % 4;
+      this.row = (this.row + (e.code === "ArrowUp" ? 4 : 1)) % 5;
       return;
     }
     const step = isLeft(e) ? -1 : isRight(e) ? 1 : e.code === "Space" && this.row > 0 ? 1 : 0;
     if (step && this.row > 0) {
       this.armed = false;
       if (this.row === 1) {
+        const n = STYLE_ORDER.length;
+        this.style = STYLE_ORDER[(STYLE_ORDER.indexOf(this.style) + step + n) % n];
+      } else if (this.row === 2) {
         const all: Difficulty[] = ["easy", "normal", "hard"];
         this.difficulty = all[(all.indexOf(this.difficulty) + step + 3) % 3];
-      } else if (this.row === 2) this.mode = this.mode === "street" ? "permadeath" : "street";
+      } else if (this.row === 3) this.mode = this.mode === "street" ? "permadeath" : "street";
       else this.slot = (this.slot + step + SAVE_SLOTS) % SAVE_SLOTS;
       return;
     }
@@ -234,9 +240,8 @@ class CreateScreen implements Screen {
         return;
       }
       const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
-      void deleteSlot(this.slot).then(() =>
-        startGame(this.app, Game.create(this.name, this.mode, seed, this.difficulty), this.slot),
-      );
+      const game = Game.create(this.name, this.mode, seed, this.difficulty, this.style);
+      void deleteSlot(this.slot).then(() => startGame(this.app, game, this.slot));
       return;
     }
     if (this.row === 0) {
@@ -248,8 +253,8 @@ class CreateScreen implements Screen {
 
   draw(t: Term, now: number): void {
     const x = 22;
-    const y = 4;
-    t.box(x, y, 66, 28, C.orange, "New Fighter");
+    const y = 3;
+    t.box(x, y, 66, 31, C.orange, "New Fighter");
     const head = (row: number, text: string, yy: number) =>
       t.text(x + 3, yy, text, this.row === row ? C.yellow : C.light);
     head(0, "Name your fighter:", y + 2);
@@ -257,35 +262,68 @@ class CreateScreen implements Screen {
     t.text(x + 5, y + 3, `${this.name || ""}${cursor}`, C.white, C.dark);
     for (let i = this.name.length + 1; i < 16; i++) t.put(x + 5 + i, y + 3, " ", C.white, C.dark);
 
-    head(1, "Difficulty:", y + 6);
+    head(1, "Fighting style:", y + 5);
+    const st = STYLES[this.style];
+    const pos = `(${STYLE_ORDER.indexOf(this.style) + 1} of ${STYLE_ORDER.length})`;
+    const nx = t.text(x + 5, y + 6, `◄ ${st.name} ►`, this.row === 1 ? C.yellow : C.white);
+    t.text(nx + 2, y + 6, pos, C.dim);
+    Term.wrap(st.blurb, 58)
+      .slice(0, 2)
+      .forEach((l, i) => t.text(x + 5, y + 7 + i, l, C.gray));
+    Term.wrap(st.perk, 58)
+      .slice(0, 2)
+      .forEach((l, i) => t.text(x + 5, y + 9 + i, l, C.lime));
+    const b = st.base;
+    let sx = x + 5;
+    for (const [label, v] of [
+      ["PUN", b.punch],
+      ["KIK", b.kick],
+      ["STR", b.strength],
+      ["AGI", b.agility],
+      ["DEF", b.defense],
+      ["GUT", b.guts],
+      ["STA", b.stamina],
+    ] as const) {
+      sx = t.text(sx, y + 11, label, C.gray) + 1;
+      sx =
+        t.text(
+          sx,
+          y + 11,
+          String(v),
+          v > 6 && label !== "STA" ? C.lime : v < 6 ? C.orange : C.white,
+        ) + 2;
+    }
+    t.text(sx, y + 11, `$${st.cash}`, C.gold);
+
+    head(2, "Difficulty:", y + 13);
     (["easy", "normal", "hard"] as Difficulty[]).forEach((d, i) => {
       const sel = d === this.difficulty;
       t.text(
         x + 5 + i * 14,
-        y + 7,
+        y + 14,
         sel ? `► ${DIFFICULTY[d].label}` : `  ${DIFFICULTY[d].label}`,
         sel ? [C.lime, C.yellow, C.red][i] : C.gray,
       );
     });
     Term.wrap(DIFFICULTY[this.difficulty].blurb, 58).forEach((l, i) =>
-      t.text(x + 5, y + 8 + i, l, C.gray),
+      t.text(x + 5, y + 15 + i, l, C.gray),
     );
 
-    head(2, "Rules:", y + 11);
+    head(3, "Rules:", y + 18);
     const street = this.mode === "street";
-    t.text(x + 5, y + 12, street ? "► Street Rules" : "  Street Rules", street ? C.lime : C.gray);
-    t.text(x + 25, y + 12, !street ? "► Permadeath" : "  Permadeath", !street ? C.red : C.gray);
+    t.text(x + 5, y + 19, street ? "► Street Rules" : "  Street Rules", street ? C.lime : C.gray);
+    t.text(x + 25, y + 19, !street ? "► Permadeath" : "  Permadeath", !street ? C.red : C.gray);
     const desc = street
       ? "Get knocked out and you wake up in the last town you visited, minus some cash. Like the old arcade brawlers."
       : "A true roguelike. Get knocked out on the street and it's over for good - your save is deleted. (Losing in a fight club ring is safe.)";
-    Term.wrap(desc, 58).forEach((l, i) => t.text(x + 5, y + 13 + i, l, C.gray));
+    Term.wrap(desc, 58).forEach((l, i) => t.text(x + 5, y + 20 + i, l, C.gray));
 
-    head(3, "Save slot:", y + 17);
+    head(4, "Save slot:", y + 23);
     for (let n = 0; n < SAVE_SLOTS; n++) {
       const sel = n === this.slot;
       t.text(
         x + 5 + n * 14,
-        y + 18,
+        y + 24,
         sel ? `► Slot ${n + 1}` : `  Slot ${n + 1}`,
         sel ? C.cyan : C.gray,
       );
@@ -293,16 +331,15 @@ class CreateScreen implements Screen {
     const taken = this.taken();
     t.text(
       x + 5,
-      y + 19,
+      y + 25,
       taken ? `In use: ${taken.title}` : "Empty",
       taken ? C.orange : C.dim,
       undefined,
       x + 64,
     );
     if (taken && this.armed)
-      t.text(x + 5, y + 21, "Press Enter again to replace that saved game.", C.red);
-    t.text(x + 3, y + 23, "You start with $25, two candy bars and fists.", C.gray);
-    t.text(x + 3, y + 25, "Type a name  ↑↓ choose row  ←→ change  Enter start  Esc back", C.dim);
+      t.text(x + 5, y + 26, "Press Enter again to replace that saved game.", C.red);
+    t.text(x + 3, y + 28, "Type a name  ↑↓ choose row  ←→ change  Enter start  Esc back", C.dim);
   }
 
   animating(): boolean {
@@ -394,6 +431,7 @@ class SettingsScreen implements Screen {
   private options(): string[] {
     return [
       `Sound volume: ${"■".repeat(settings.volume)}${"·".repeat(10 - settings.volume)} ${settings.volume * 10}%`,
+      `Music volume: ${"■".repeat(settings.music)}${"·".repeat(10 - settings.music)} ${settings.music * 10}%`,
       `Text size: ${settings.textSize === "large" ? "Large" : "Normal"}`,
       `Screen shake on big hits: ${settings.shake ? "On" : "Off"}`,
       ...(window.rumblerow ? [`Fullscreen: ${settings.fullscreen ? "On" : "Off"}  (F11)`] : []),
@@ -421,6 +459,13 @@ class SettingsScreen implements Screen {
         : Math.max(0, Math.min(10, settings.volume + step));
       setVolume(settings.volume / 10);
       this.app.sound("coin");
+    } else if (o.startsWith("Music")) {
+      settings.music = confirm(e)
+        ? settings.music === 0
+          ? 5
+          : 0
+        : Math.max(0, Math.min(10, settings.music + step));
+      setMusicVolume(settings.music / 10);
     } else if (o.startsWith("Text")) {
       settings.textSize = settings.textSize === "large" ? "normal" : "large";
       this.app.relayout();
@@ -662,6 +707,11 @@ export class HelpScreen implements Screen {
         "CLUBS",
         "Each town hides a fight club (a red ! door). Bet on yourself, win purses and title belts.",
       ],
+      [
+        "JOBS",
+        `Job boards (yellow ≡ doors) post bounties, clean-ups and deliveries. ${k("jobs")} lists yours.`,
+      ],
+      ["", "On the streets, rescue people being shaken down - and watch out for your rival, Dex."],
       ["", ""],
       [
         "TACTICS",
@@ -695,6 +745,7 @@ export class MenuScreen implements Screen {
     const inBout = !!this.app.game?.s.bout;
     return [
       "Resume",
+      "Your Jobs",
       "Settings",
       "How to Play",
       "Copy a bug report",
@@ -716,6 +767,7 @@ export class MenuScreen implements Screen {
       const o = opts[this.cursor];
       if (o !== "Forfeit the bout") this.armedForfeit = false;
       if (o === "Resume") this.app.pop();
+      else if (o === "Your Jobs") this.app.push(new JobsScreen(this.app));
       else if (o === "Settings") this.app.push(new SettingsScreen(this.app));
       else if (o === "How to Play") this.app.push(new HelpScreen(this.app));
       else if (o === "Copy a bug report") {
