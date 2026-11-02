@@ -1,8 +1,28 @@
-RUMBLE ROW 0.5 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.6 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.6 - "UPTOWN"
+----------------------
+- The Kennel: the Chrome Dogs finally have a hideout, in an old subway depot past the
+  Underline, and a boss: Kilo Marsh, who pounces, mauls and howls for the pack.
+- Ashgate Heights, a fourth town between the Kennel and Crown Tower:
+    Chez Margot and Saffron House (the best food in the city), Fenwick's Fine Foods,
+    the Ashgate Grand hotel, a job board, a bus stop, and a hidden fight club (The Vault).
+- The Summit Athletic Club teaches two new moves: Rising Knee (crushes foes who are down or
+  dazed) and Counter Stance (slip punches and hit back for a few turns). Felix Duarte, a
+  gentleman boxer, will team up with you there.
+- Hartwell & Daughters, Tailors: have the gear you're wearing improved, up to three times.
+- Second Chance Pawn: second-hand gear at a discount plus one rare find (the cases change
+  every visit), and it buys things from your pockets.
+- Duke Varga and his Crown Tower guards are tougher, to match.
+- Controller: hold View and press RB / LB to walk to the next / previous area.
+- Three new achievements, including holding all four fight club belts.
+- Fixed a rare "could not save" error when two saves happened at the same moment.
+- Your 0.5 save carries over. If you're already past the subway, Kilo won't block the way.
 
 
 NEW IN 0.5 - "CITY NIGHTS"
@@ -94,7 +114,8 @@ Press ? in the game for every control (keys can be changed in Settings). The bas
   Esc ................... menu      F11 ... fullscreen
 
 Controller: stick or d-pad moves, A punch, B kick, X special, Y guard, LB wait,
-RB next special, LT grab, RT throw, View pockets, Menu button for the menu.
+RB next special, LT grab, RT throw, View pockets, Menu button for the menu,
+View + RB / LB walk to the next / previous area.
 
 Walk into a shop door to go in. Food heals you AND permanently raises your stats, but each
 dish only helps up to a point - so try the menus in every new town. Gyms teach special moves.

@@ -23,6 +23,8 @@ import {
   type Difficulty,
   type Dir,
   type Enemy,
+  GEAR_SLOTS,
+  type GearSlot,
   STAT_KEYS,
 } from "../src/game/types";
 import { AREAS } from "../src/game/world";
@@ -236,7 +238,14 @@ export function playGame(
     const techs = p.techniques
       .map((id, i) => ({ t: TECHNIQUES[id], i }))
       .filter(({ t }) => p.guts >= t.guts);
-    const around = techs.filter(({ t }) => t.aim === "around").sort((a, b) => b.t.guts - a.t.guts);
+    const counter = techs.find(({ t }) => t.id === "counter");
+    if (counter && target.e.boss && !p.buffs.some((b) => b.counter)) {
+      g.technique(counter.i, null);
+      return;
+    }
+    const around = techs
+      .filter(({ t }) => t.aim === "around" && t.id !== "counter")
+      .sort((a, b) => b.t.guts - a.t.guts);
     if (adj.length >= 2 && around.length) {
       g.technique(around[0].i, null);
       return;
@@ -326,7 +335,7 @@ const WEIGHT: Record<AnyStat, number> = {
 };
 
 function townTier(town: string): number {
-  return town === "maple" ? 1 : town === "harbor" ? 2 : 3;
+  return town === "maple" ? 1 : town === "harbor" ? 2 : town === "neon" ? 3 : 4;
 }
 
 /** Spends money in the current town the way a careful player would. */
@@ -376,10 +385,25 @@ function shop(g: Game, r: RunReport): void {
     return Object.entries(st).reduce((n, [k, v]) => n + (k === "guts" ? v * 0.6 : v), 0);
   };
   for (const s of shops) {
-    for (const id of s.stock) {
+    for (const id of g.stockOf(s.id)) {
       const item = ITEMS[id];
       if (item.kind !== "gear" || !item.slot) continue;
-      if (score(id) > score(p.gear[item.slot]) + 1 && item.price <= p.cash * 0.75) buy(s.id, id);
+      const price = g.priceOf(s.id, id);
+      if (score(id) > score(p.gear[item.slot]) + 1 && price <= p.cash * 0.75) buy(s.id, id);
+    }
+  }
+  // Tailoring, while it's affordable.
+  const tailor = shops.find((s) => s.kind === "tailor");
+  if (tailor) {
+    for (let n = 0; n < 12; n++) {
+      const options = GEAR_SLOTS.map((slot) => ({ slot, price: g.tailorPrice(slot) }))
+        .filter((o): o is { slot: GearSlot; price: number } => o.price !== null)
+        .filter((o) => o.price <= p.cash * 0.4)
+        .sort((a, b) => a.price - b.price);
+      if (!options.length) break;
+      const before = p.cash;
+      if (!g.tailor(tailor.id, options[0].slot).ok) break;
+      r.spent.tailor = (r.spent.tailor ?? 0) + before - p.cash;
     }
   }
   // Books.

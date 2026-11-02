@@ -93,6 +93,28 @@ export const PARTNERS: Record<string, PartnerDef> = {
   },
 };
 
+PARTNERS.felix = {
+  id: "felix",
+  name: "Felix Duarte",
+  title: "Gentleman Boxer",
+  color: C.gold,
+  gym: "summit",
+  price: 1600,
+  share: {
+    punch: 0.9,
+    kick: 0.7,
+    strength: 0.85,
+    agility: 0.85,
+    defense: 0.9,
+    guts: 0.85,
+    stamina: 0.9,
+  },
+  move: { name: "Sunday Punch", power: 1.8, knock: 2, stun: 1 },
+  hello: '"Ashgate used to be a nice neighborhood. Shall we make it one again?"',
+  pitch:
+    "A former amateur champion who now teaches rich kids to box. Pressed slacks, perfect manners, and a right hand like a dropped piano.",
+};
+
 export const PARTNER_BY_GYM: Record<string, string> = Object.fromEntries(
   Object.values(PARTNERS).map((p) => [p.gym, p.id]),
 );

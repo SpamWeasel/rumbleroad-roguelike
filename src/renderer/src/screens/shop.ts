@@ -1,15 +1,27 @@
 import { C } from "../../../game/colors";
 import { ITEMS } from "../../../game/data/items";
 import { PARTNER_BY_GYM, PARTNER_CUT, PARTNERS } from "../../../game/data/partners";
-import { SHOPS, type ShopDef } from "../../../game/data/shops";
+import {
+  PAWN_BUYS,
+  PAWN_DISCOUNT,
+  SHOPS,
+  type ShopDef,
+  TAILOR_MAX,
+} from "../../../game/data/shops";
 import { TECHNIQUES } from "../../../game/data/techniques";
-import { describeBonus, type Game, POCKET_SIZE } from "../../../game/game";
-import { ALL_STATS, type AnyStat, GEAR_SLOT_LABEL, STAT_LABEL } from "../../../game/types";
+import { describeBonus, describeItem, type Game, POCKET_SIZE } from "../../../game/game";
+import {
+  ALL_STATS,
+  type AnyStat,
+  GEAR_SLOT_LABEL,
+  GEAR_SLOTS,
+  STAT_LABEL,
+} from "../../../game/types";
 import type { App, Screen } from "../app";
 import { isBack, isDown, isUp } from "../input";
 import { Term } from "../term";
 
-type Tab = "buy" | "tech" | "train" | "partner";
+type Tab = "buy" | "tech" | "train" | "partner" | "sell" | "tailor";
 
 const BOX = { x: 2, y: 1, w: 72, h: 24 };
 
@@ -34,7 +46,11 @@ export class ShopScreen implements Screen {
           ...(PARTNER_BY_GYM[this.shop.id] ? (["partner"] as Tab[]) : []),
           ...(this.shop.stock.length ? (["buy"] as Tab[]) : []),
         ]
-      : ["buy"];
+      : this.shop.kind === "pawn"
+        ? ["buy", "sell"]
+        : this.shop.kind === "tailor"
+          ? ["tailor"]
+          : ["buy"];
     this.tab = this.tabs[0];
     this.message = this.shop.greet;
   }
@@ -43,8 +59,15 @@ export class ShopScreen implements Screen {
     return this.app.game as Game;
   }
 
+  /** What's for sale here (the pawn shop's cases change every visit). */
+  private stock(): string[] {
+    return this.game.stockOf(this.shop.id);
+  }
+
   private rows(): number {
-    if (this.tab === "buy") return this.shop.stock.length;
+    if (this.tab === "buy") return this.stock().length;
+    if (this.tab === "sell") return Math.max(1, this.game.player.pockets.length);
+    if (this.tab === "tailor") return GEAR_SLOTS.length;
     if (this.tab === "tech") return this.shop.gym?.techniques.length ?? 0;
     if (this.tab === "partner") return this.partnerRows().length;
     return ALL_STATS.length;
@@ -79,8 +102,13 @@ export class ShopScreen implements Screen {
 
   private choose(bag: boolean): void {
     const g = this.game;
-    if (this.tab === "buy") {
-      const id = this.shop.stock[this.cursor];
+    if (this.tab === "sell") {
+      this.say(g.sell(this.shop.id, this.cursor));
+      this.cursor = Math.max(0, Math.min(this.cursor, g.player.pockets.length - 1));
+    } else if (this.tab === "tailor") {
+      this.say(g.tailor(this.shop.id, GEAR_SLOTS[this.cursor]));
+    } else if (this.tab === "buy") {
+      const id = this.stock()[this.cursor];
       const item = ITEMS[id];
       if (bag && !item.takeout && item.kind !== "tonic") {
         this.say({ ok: false, message: `${item.name} isn't sold to go.` });
@@ -134,10 +162,12 @@ export class ShopScreen implements Screen {
       let tx = x + 2;
       for (const tab of this.tabs) {
         const label = {
-          buy: " Services ",
+          buy: this.shop.kind === "pawn" ? " Buy " : " Services ",
           tech: " Techniques ",
           train: " Training ",
           partner: " Partner ",
+          sell: " Sell ",
+          tailor: " Tailoring ",
         }[tab];
         tx =
           t.text(
@@ -152,19 +182,27 @@ export class ShopScreen implements Screen {
       ty += 2;
     }
     if (this.tab === "buy") this.drawStock(t, ty);
+    else if (this.tab === "sell") this.drawSell(t, ty);
+    else if (this.tab === "tailor") this.drawTailor(t, ty);
     else if (this.tab === "tech") this.drawTechniques(t, ty);
     else if (this.tab === "partner") this.drawPartner(t, ty);
     else this.drawTraining(t, ty);
     const foot =
-      this.tab === "buy"
-        ? this.shop.stock.some((id) => ITEMS[id].takeout)
-          ? "↑↓ choose   Enter buy/eat here   B take it to go   Esc leave"
-          : "↑↓ choose   Enter buy   Esc leave"
-        : this.tab === "tech"
-          ? "↑↓ choose   Enter learn   Tab switch   Esc leave"
-          : this.tab === "partner"
-            ? "↑↓ choose   Enter pick   Tab switch   Esc leave"
-            : "↑↓ choose   Enter train   Tab switch   Esc leave";
+      this.tab === "sell"
+        ? "↑↓ choose   Enter sell   Tab switch   Esc leave"
+        : this.tab === "tailor"
+          ? "↑↓ choose   Enter tailor it   Esc leave"
+          : this.tab === "buy"
+            ? this.stock().some((id) => ITEMS[id].takeout)
+              ? "↑↓ choose   Enter buy/eat here   B take it to go   Esc leave"
+              : this.tabs.length > 1
+                ? "↑↓ choose   Enter buy   Tab switch   Esc leave"
+                : "↑↓ choose   Enter buy   Esc leave"
+            : this.tab === "tech"
+              ? "↑↓ choose   Enter learn   Tab switch   Esc leave"
+              : this.tab === "partner"
+                ? "↑↓ choose   Enter pick   Tab switch   Esc leave"
+                : "↑↓ choose   Enter train   Tab switch   Esc leave";
     t.text(x + 2, y + h - 2, foot, C.gray);
   }
 
@@ -223,13 +261,24 @@ export class ShopScreen implements Screen {
         `Today's special: 40% off (usually $${sel.item.price}). Changes next visit.`,
         C.lime,
       );
+    if (this.shop.kind === "pawn")
+      t.text(
+        x + 4,
+        yy++,
+        sel.price < sel.item.price
+          ? `Second-hand: ${Math.round((1 - PAWN_DISCOUNT) * 100)}% off the new price. The cases change every visit.`
+          : "A rare find - you won't see this in any other shop.",
+        C.gold,
+        undefined,
+        x + w - 1,
+      );
     if (sel.item.kind === "gear" && sel.item.slot) {
       const cur = g.player.gear[sel.item.slot];
       t.text(
         x + 4,
         yy++,
         cur
-          ? `Wearing now: ${ITEMS[cur].name} (${describeBonus(ITEMS[cur].stats ?? {})}) - trade-in $${Math.floor(ITEMS[cur].price / 4)}`
+          ? `Wearing now: ${g.gearName(sel.item.slot)} (${describeBonus(g.gearStats(sel.item.slot))}) - trade-in $${Math.floor(ITEMS[cur].price / 4)}`
           : `Nothing worn on ${GEAR_SLOT_LABEL[sel.item.slot]} yet.`,
         C.gray,
         undefined,
@@ -280,7 +329,7 @@ export class ShopScreen implements Screen {
     t.text(
       x + 4,
       yy++,
-      `Powered by ${STAT_LABEL[tech.power]}. ${tech.aim === "around" ? "Hits everyone around you." : "Aimed in a direction."}`,
+      `Powered by ${STAT_LABEL[tech.power]}. ${tech.id === "counter" ? "A stance: no aiming needed." : tech.aim === "around" ? "Hits everyone around you." : "Aimed in a direction."}`,
       C.gray,
       undefined,
       x + w - 1,
@@ -294,6 +343,82 @@ export class ShopScreen implements Screen {
       undefined,
       x + w - 1,
     );
+  }
+
+  private drawSell(t: Term, y0: number): void {
+    const g = this.game;
+    const { x, w } = BOX;
+    const pockets = g.player.pockets;
+    if (pockets.length === 0) {
+      t.text(x + 4, y0, "Your pockets are empty. Nothing to sell.", C.gray);
+    }
+    pockets.forEach((id, i) => {
+      const yy = y0 + i;
+      const sel = i === this.cursor;
+      if (sel) t.fill(x + 1, yy, w - 2, 1, " ", C.light, C.dark);
+      t.text(x + 2, yy, sel ? "►" : " ", C.yellow, sel ? C.dark : undefined);
+      t.text(x + 4, yy, ITEMS[id].name, C.white, undefined, x + 28);
+      t.text(x + 29, yy, `$${g.sellPrice(id)}`, C.gold);
+      t.text(x + 35, yy, describeItem(ITEMS[id]), C.gray, undefined, x + w - 1);
+    });
+    let yy = y0 + Math.max(1, pockets.length) + 1;
+    for (const l of Term.wrap(
+      `The pawnbroker pays ${Math.round(PAWN_BUYS * 100)}% of the shop price for anything in your pockets. Worn gear is traded in when you buy new gear in a slot.`,
+      w - 6,
+    ))
+      t.text(x + 4, yy++, l, C.gray);
+  }
+
+  private drawTailor(t: Term, y0: number): void {
+    const g = this.game;
+    const { x, w } = BOX;
+    const p = g.player;
+    GEAR_SLOTS.forEach((slot, i) => {
+      const yy = y0 + i;
+      const sel = i === this.cursor;
+      const price = g.tailorPrice(slot);
+      const worn = p.gear[slot];
+      if (sel) t.fill(x + 1, yy, w - 2, 1, " ", C.light, C.dark);
+      t.text(x + 2, yy, sel ? "►" : " ", C.yellow, sel ? C.dark : undefined);
+      t.text(x + 4, yy, GEAR_SLOT_LABEL[slot], C.gray);
+      t.text(x + 11, yy, worn ? g.gearName(slot) : "-", worn ? C.white : C.dim, undefined, x + 38);
+      t.text(
+        x + 39,
+        yy,
+        !worn ? "" : price === null ? "finest work" : `$${price}`,
+        price === null ? C.dim : p.cash >= price ? C.gold : C.red,
+      );
+      const n = p.tailored?.[slot] ?? 0;
+      if (worn) t.text(x + 52, yy, `${"★".repeat(n)}${"·".repeat(TAILOR_MAX - n)}`, C.amber);
+    });
+    let yy = y0 + GEAR_SLOTS.length + 1;
+    const slot = GEAR_SLOTS[this.cursor];
+    if (p.gear[slot]) {
+      t.text(x + 2, yy++, g.gearName(slot), this.shop.color);
+      t.text(
+        x + 4,
+        yy++,
+        `Now: ${describeBonus(g.gearStats(slot))}`,
+        C.light,
+        undefined,
+        x + w - 1,
+      );
+      if (g.tailorPrice(slot) !== null)
+        t.text(
+          x + 4,
+          yy++,
+          `After tailoring: ${describeBonus(g.tailorPreview(slot))}`,
+          C.lime,
+          undefined,
+          x + w - 1,
+        );
+    } else t.text(x + 4, yy++, `You aren't wearing anything on your ${slot}.`, C.gray);
+    yy++;
+    for (const l of Term.wrap(
+      `Each fitting adds about 15% to everything a piece of gear gives (at least +1), up to ${TAILOR_MAX} times. Tailoring stays with the gear until you replace it.`,
+      w - 6,
+    ))
+      t.text(x + 4, yy++, l, C.gray);
   }
 
   /** "hire" this gym's fighter, and "dismiss" whoever is with you now. */

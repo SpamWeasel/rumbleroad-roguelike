@@ -35,6 +35,12 @@ export const ACHIEVEMENTS: Achievement[] = [
     check: (g) => !!g.s.flags.mara,
   },
   {
+    id: "kilo",
+    name: "Top Dog",
+    desc: "Beat Kilo Marsh in the Kennel.",
+    check: (g) => !!g.s.flags.kilo,
+  },
+  {
     id: "varga",
     name: "The City Is Free",
     desc: "Beat Duke Varga on the roof of Crown Tower.",
@@ -49,8 +55,20 @@ export const ACHIEVEMENTS: Achievement[] = [
   {
     id: "triple",
     name: "Undisputed",
-    desc: "Hold all three fight club title belts.",
+    desc: "Hold three fight club title belts.",
     check: (g) => titles(g) >= 3,
+  },
+  {
+    id: "grandslam",
+    name: "Grand Slam",
+    desc: "Hold all four fight club title belts.",
+    check: (g) => titles(g) >= 4,
+  },
+  {
+    id: "bespoke",
+    name: "Bespoke",
+    desc: "Have a piece of gear tailored as far as it goes.",
+    check: (g) => Object.values(g.player.tailored ?? {}).some((n) => (n ?? 0) >= 3),
   },
   {
     id: "samaritan",

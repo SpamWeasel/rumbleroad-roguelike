@@ -92,6 +92,28 @@ export const CLUBS: Record<string, Club> = {
       },
     ],
   },
+  club_ashgate: {
+    id: "club_ashgate",
+    arena: "arena_ashgate",
+    gangs: ["crowns", "dogs"],
+    bouts: [
+      { name: "Members' Night", fee: 300, purse: 1100, depth: 9, waves: [3, 3] },
+      { name: "High Rollers", fee: 600, purse: 2200, depth: 10, waves: [3, 4, 3] },
+      {
+        name: "Ashgate Crown",
+        fee: 1000,
+        purse: 4000,
+        depth: 11,
+        waves: [3, 4, 1],
+        champion: {
+          name: "Silas Vane",
+          title: "The Velvet Glove",
+          prize: "platkicks",
+          color: C.gold,
+        },
+      },
+    ],
+  },
 };
 
 /** A bet on yourself pays back double if you win. */

@@ -10,7 +10,9 @@ export type ShopKind =
   | "vendor"
   | "arena"
   | "board"
-  | "bus";
+  | "bus"
+  | "tailor"
+  | "pawn";
 
 export interface ShopDef {
   id: string;
@@ -61,6 +63,15 @@ const shops: ShopDef[] = [
   { id: "hermit", name: "Master Hu's Hut", sign: "HU", kind: "gym", color: C.yellow, greet: "An old man sips tea. \"You climbed all this way to learn, or to sightsee?\"", stock: ["meditate"], gym: { techniques: ["hundred"], priceMult: 2.5, trainCap: 99 } },
   { id: "mae", name: "Old Mae's Tea Stand", sign: "TEA", kind: "food", hours: "day", color: C.tan, greet: "Sit, sit. The kettle's always on.", stock: ["mountaintea", "sesame"] },
 
+  // Ashgate Heights
+  { id: "margot", name: "Chez Margot", sign: "MARGOT", kind: "food", color: C.pink, greet: "Margot herself seats you. \"The steak is very good tonight. It is always very good.\"", stock: ["onionsoup", "steakfrites", "coqauvin", "souffle", "tasting"] },
+  { id: "saffron", name: "Saffron House", sign: "SAFFRON", kind: "food", color: C.amber, greet: "Warm spices hit you at the door. \"Table for one? Hungry for two?\"", stock: ["dal", "tandoori", "vindaloo", "naan", "lassi"] },
+  { id: "fenwick", name: "Fenwick's Fine Foods", sign: "FENWICK'S", kind: "store", color: C.lime, greet: "A grocer in a bow tie. \"Only the finest, sir or madam.\"", stock: ["espresso", "truffles", "royaljelly", "caviar", "firstaid", "salts"] },
+  { id: "tailor", name: "Hartwell & Daughters, Tailors", sign: "TAILOR", kind: "tailor", color: C.tan, greet: "Mrs. Hartwell peers over her glasses. \"Let's see what we can do with that.\"", stock: [] },
+  { id: "summit", name: "Summit Athletic Club", sign: "SUMMIT", kind: "gym", color: C.white, greet: "Polished wood, brass fittings. Coach Lindqvist checks a stopwatch. \"You're late. Warm up.\"", stock: [], gym: { techniques: ["knee", "counter"], priceMult: 2.4, trainCap: 90 } },
+  { id: "pawn", name: "Second Chance Pawn", sign: "PAWN", kind: "pawn", color: C.gold, greet: "Glass cases full of other people's stories. \"Buying or selling?\"", stock: [] },
+  { id: "grand", name: "The Ashgate Grand", sign: "GRAND", kind: "service", color: C.light, greet: "A doorman in white gloves. \"Welcome to the Grand.\"", stock: ["spa", "suite"] },
+
   // Street vendors and machines found around town
   { id: "v_vend", name: "Vending Machine", sign: "", kind: "vendor", color: C.cyan, glyph: "V", greet: "It hums. A sticker says 'NO REFUNDS'.", stock: ["soda", "candy", "energy", "gum"] },
   { id: "v_hotdog", name: "Hot Dog Cart", sign: "", kind: "vendor", hours: "day", color: C.yellow, glyph: "h", greet: "\"Dogs! Get your dogs!\"", stock: ["hotdog", "pretzel", "soda"] },
@@ -72,15 +83,30 @@ const shops: ShopDef[] = [
   { id: "bus_maple", name: "Maple & 5th Bus Stop", sign: "", kind: "bus", color: C.cyan, glyph: "B", greet: "A dented bus shelter. The schedule is mostly graffiti, but the buses come.", stock: [] },
   { id: "bus_harbor", name: "Harbor Terminal Bus Stop", sign: "", kind: "bus", color: C.cyan, glyph: "B", greet: "A bus idles by the fish market, smelling faintly of both.", stock: [] },
   { id: "bus_neon", name: "Neon Strip Bus Stop", sign: "", kind: "bus", color: C.cyan, glyph: "B", greet: "The night bus glows like everything else on the Strip.", stock: [] },
+  { id: "bus_ashgate", name: "Ashgate Square Bus Stop", sign: "", kind: "bus", color: C.cyan, glyph: "B", greet: "A clean shelter with a working clock. Even the buses look richer here.", stock: [] },
   { id: "board_maple", name: "Maple Street Job Board", sign: "", kind: "board", color: C.yellow, glyph: "≡", greet: "A corkboard crowded with flyers, phone numbers and WANTED posters.", stock: [] },
   { id: "board_harbor", name: "Harbor Job Board", sign: "", kind: "board", color: C.yellow, glyph: "≡", greet: "Salt-stained notices flap in the wind. Somebody always needs a hand.", stock: [] },
   { id: "board_neon", name: "Neon Strip Job Board", sign: "", kind: "board", color: C.yellow, glyph: "≡", greet: "A glowing screen scrolls requests between ads for the arcade.", stock: [] },
+  { id: "board_ashgate", name: "Ashgate Notice Board", sign: "", kind: "board", color: C.yellow, glyph: "≡", greet: "A brass-framed board outside the club. The postings are typed, and the rewards are generous.", stock: [] },
   { id: "club_maple", name: "The Boiler Room", sign: "", kind: "arena", color: C.red, glyph: "!", greet: "A bouncer looks you up and down. \"Fighting or watching?\"", stock: [] },
   { id: "club_harbor", name: "The Bilge", sign: "", kind: "arena", color: C.red, glyph: "!", greet: "Sailors crowd a rope ring in a flooded warehouse, waving cash.", stock: [] },
+  { id: "club_ashgate", name: "The Vault", sign: "", kind: "arena", color: C.red, glyph: "!", greet: "Behind a bank vault door: a marble ring, a quiet crowd in tuxedos, very large bets.", stock: [] },
   { id: "club_neon", name: "The Velvet Pit", sign: "", kind: "arena", color: C.red, glyph: "!", greet: "Velvet ropes, cigar smoke, and a ring under hot spotlights.", stock: [] },
 ];
 
 export const SHOPS: Record<string, ShopDef> = Object.fromEntries(shops.map((s) => [s.id, s]));
+
+/** Rare gear that only ever turns up in the pawn shop. */
+export const PAWN_RARE = ["brass", "vintagekicks", "bikerjacket", "pocketwatch"];
+/** Second-hand gear in the pawn shop costs this share of the new price. */
+export const PAWN_DISCOUNT = 0.65;
+/** The cheapest second-hand gear the pawn shop bothers stocking. */
+export const PAWN_MIN = 120;
+/** What the pawn shop pays for things from your pockets (share of the price). */
+export const PAWN_BUYS = 0.5;
+/** Most times a piece of gear can be tailored, and what each time adds (share of its bonus). */
+export const TAILOR_MAX = 3;
+export const TAILOR_STEP = 0.15;
 
 /** Shops that can turn up on random streets. */
 export const STREET_VENDORS = ["v_vend", "v_hotdog", "v_taco", "v_icecream", "v_trench"];

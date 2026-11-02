@@ -503,13 +503,14 @@ class SettingsScreen implements Screen {
     const opts = this.options();
     const x = 22;
     const y = 7;
-    t.box(x, y, 66, opts.length * 2 + 10, C.cyan, "Settings", C.cyan);
+    t.box(x, y, 66, opts.length * 2 + 11, C.cyan, "Settings", C.cyan);
     drawOptions(t, x + 3, y + 2, opts, this.cursor);
     const yy = y + 3 + opts.length * 2;
     t.text(x + 3, yy, "Controllers work everywhere: plug one in and press A.", C.gray);
     t.text(x + 3, yy + 1, "Stick/d-pad move, A punch, B kick, X special, Y guard.", C.gray);
     t.text(x + 3, yy + 2, "LB wait, RB next special, LT grab, RT throw, View pockets.", C.gray);
-    t.text(x + 3, yy + 4, "↑↓ choose   ←→ or Enter change   Esc back", C.dim);
+    t.text(x + 3, yy + 3, "View + RB / View + LB walk to the next / previous area.", C.gray);
+    t.text(x + 3, yy + 5, "↑↓ choose   ←→ or Enter change   Esc back", C.dim);
   }
 }
 
@@ -712,7 +713,7 @@ export class HelpScreen implements Screen {
       ["", "Every restaurant has a daily special at 40% off. It changes each time you come back."],
       [
         "GEAR",
-        "Gear shops sell shoes, gloves, jackets and charms that boost your stats while worn.",
+        "Worn gear boosts stats. Ashgate's tailor improves it; its pawn shop buys and sells.",
       ],
       [
         "GYMS",

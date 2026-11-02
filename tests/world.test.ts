@@ -7,9 +7,10 @@ import { TECHNIQUES } from "../src/game/data/techniques";
 import { Game } from "../src/game/game";
 import { generateDistrict } from "../src/game/generate";
 import { distanceMap } from "../src/game/grid";
+import { Rng } from "../src/game/rng";
 import { T, walkable } from "../src/game/tiles";
 import { DIRS8, type Enemy, STAT_KEYS } from "../src/game/types";
-import { AREAS, buildArea, parseStatic } from "../src/game/world";
+import { AREAS, buildArea, makeGangMember, parseStatic } from "../src/game/world";
 import { playGame } from "./bot";
 
 describe("data", () => {
@@ -702,5 +703,176 @@ describe("0.5 features", () => {
     const loaded = Game.load(JSON.stringify(old));
     expect(loaded.s.clock).toBe(0);
     expect(loaded.s.tally).toEqual({ jobs: 2, rescues: 1, meals: 0, nightKos: 0 });
+  });
+});
+
+describe("0.6 features", () => {
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    bossTurn(e: Enemy, dist: number): number;
+    strike(
+      a: unknown,
+      t: unknown,
+      raw: number,
+      o: { dir: readonly [number, number]; verb: string; sound: "punch"; sure?: boolean },
+    ): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+
+  it("the subway leads to the Kennel, and Kilo guards the way to Ashgate Heights", () => {
+    expect(AREAS.subway.exits[">"].to).toBe("kennel");
+    expect(AREAS.kennel.locked).toEqual({ ">": "kilo" });
+    expect(AREAS.kennel.exits[">"].to).toBe("ashgate");
+    expect(AREAS.ashgate.exits[">"].to).toBe("steelworks");
+    expect(AREAS.steelworks.exits["<"].to).toBe("ashgate");
+    const g = Game.create("Pup", "street", 61);
+    inside(g).enterArea("kennel", "<");
+    const boss = g.area.enemies.find((e) => e.boss);
+    expect(boss?.kind).toBe("kilo");
+    // Hurt, he howls for the pack.
+    const before = g.area.enemies.length;
+    (boss as Enemy).hp = Math.floor((boss as Enemy).maxHp * 0.4);
+    inside(g).bossTurn(boss as Enemy, 5);
+    expect(g.area.enemies.length).toBe(before + 3);
+    // Once beaten, he stays beaten.
+    const after = buildArea("kennel", 61, 2, { kilo: true });
+    expect(after.enemies.some((e) => e.boss)).toBe(false);
+  });
+
+  it("the bus reaches Ashgate Heights once you've been there", () => {
+    const g = Game.create("Commuter", "street", 62);
+    const route = g.busRoutes().find((r) => r.town === "ashgate");
+    expect(route?.ok).toBe(false);
+    expect(route?.fare).toBe(24);
+    g.s.visits.ashgate = 1;
+    g.player.cash = 30;
+    expect(g.rideBus("ashgate").ok).toBe(true);
+    expect(g.area.id).toBe("ashgate");
+    expect(g.player.cash).toBe(6);
+  });
+
+  it("the tailor improves worn gear up to three times", () => {
+    const g = Game.create("Dapper", "street", 63);
+    const p = g.player;
+    p.cash = 5000;
+    g.s.visits.harbor = 1;
+    expect(g.tailor("tailor", "body").ok).toBe(false); // nothing worn
+    p.gear.body = "vest"; // defense 12
+    expect(g.stat("defense")).toBe(p.base.defense + 12);
+    const prices: number[] = [];
+    for (let i = 0; i < 3; i++) {
+      prices.push(g.tailorPrice("body") as number);
+      expect(g.tailor("tailor", "body").ok).toBe(true);
+    }
+    expect(prices).toEqual([210, 420, 630]);
+    expect(g.gearStats("body")).toEqual({ defense: 18 });
+    expect(g.stat("defense")).toBe(p.base.defense + 18);
+    expect(g.gearName("body")).toBe("Padded Vest +3");
+    expect(g.tailorPrice("body")).toBeNull();
+    expect(g.tailor("tailor", "body").ok).toBe(false);
+    // Small bonuses still get at least +1 a fitting.
+    p.gear.charm = "sweatband"; // guts 3
+    g.tailor("tailor", "charm");
+    expect(g.gearStats("charm")).toEqual({ guts: 4 });
+    // It survives a save, and replacing the gear starts over.
+    expect(Game.load(g.save()).gearStats("body")).toEqual({ defense: 18 });
+    p.tailored = { body: 3 };
+    expect(g.buy("anchor", "leather").ok).toBe(true);
+    expect(g.gearStats("body")).toEqual({ defense: 6 });
+    expect(ACHIEVEMENT_BY_ID.bespoke.check(g)).toBe(false);
+    p.tailored = { charm: 3 };
+    expect(ACHIEVEMENT_BY_ID.bespoke.check(g)).toBe(true);
+  });
+
+  it("the pawn shop sells second-hand gear plus one rare find, and buys from your pockets", () => {
+    const g = Game.create("Haggler", "street", 64);
+    const stock = g.stockOf("pawn");
+    expect(stock).toHaveLength(5);
+    expect(g.stockOf("pawn")).toEqual(stock);
+    for (const id of stock) expect(ITEMS[id].kind).toBe("gear");
+    for (const id of stock) expect(ITEMS[id].price).toBeGreaterThanOrEqual(120);
+    const rare = stock[4];
+    expect(["brass", "vintagekicks", "bikerjacket", "pocketwatch"]).toContain(rare);
+    expect(g.priceOf("pawn", rare)).toBe(ITEMS[rare].price);
+    expect(g.priceOf("pawn", stock[0])).toBe(Math.round(ITEMS[stock[0]].price * 0.65));
+    // New stock on another visit (for at least one of a few visits).
+    const others = [2, 3, 4].map((v) => {
+      g.s.visits.ashgate = v;
+      return g.stockOf("pawn").join();
+    });
+    expect(others.some((s) => s !== stock.join())).toBe(true);
+    g.s.visits.ashgate = 1;
+    g.player.cash = 5000;
+    expect(g.buy("pawn", rare).ok).toBe(true);
+    expect(Object.values(g.player.gear)).toContain(rare);
+    expect(g.buy("pawn", "ribs").ok).toBe(false);
+    // Selling.
+    g.player.pockets = ["herbal", "bandage"];
+    const cash = g.player.cash;
+    expect(g.sell("pawn", 0).ok).toBe(true);
+    expect(g.player.cash).toBe(cash + 20);
+    expect(g.player.pockets).toEqual(["bandage"]);
+    expect(g.sell("rosa", 0).ok).toBe(false);
+  });
+
+  it("Counter Stance turns punches back on the puncher", () => {
+    const g = Game.create("Wall", "street", 65);
+    inside(g).enterArea("alleys", "<");
+    const p = g.player;
+    p.techniques = ["counter"];
+    p.guts = 40;
+    expect(g.technique(0, null)).toBe(true);
+    expect(p.buffs.some((b) => b.counter)).toBe(true);
+    const foe = makeGangMember(new Rng(1), "rats", "punk", 1, p.x + 1, p.y);
+    foe.hp = foe.maxHp = 500;
+    g.area.enemies.push(foe);
+    const hp = p.hp;
+    inside(g).strike(foe, p, 20, { dir: [-1, 0], verb: "punch", sound: "punch", sure: true });
+    expect(p.hp).toBe(hp);
+    expect(foe.hp).toBeLessThan(500);
+    // It wears off after a few turns.
+    for (let i = 0; i < 4; i++) g.wait();
+    expect(p.buffs.some((b) => b.counter)).toBe(false);
+  });
+
+  it("Rising Knee hits a dazed foe much harder", () => {
+    const hit = (dazed: boolean) => {
+      const g = Game.create("Knee", "street", 66);
+      inside(g).enterArea("alleys", "<");
+      g.area.enemies.length = 0;
+      const p = g.player;
+      p.techniques = ["knee"];
+      p.guts = 40;
+      const foe = makeGangMember(new Rng(2), "rats", "punk", 1, p.x + 1, p.y);
+      foe.hp = foe.maxHp = 2000;
+      if (dazed) foe.stun = 2;
+      g.area.enemies.push(foe);
+      g.technique(0, [1, 0]);
+      return 2000 - foe.hp;
+    };
+    expect(hit(true)).toBeGreaterThan(hit(false) * 1.4);
+  });
+
+  it("Felix teams up at the Summit club, and the new achievements check out", () => {
+    const g = Game.create("Pal", "street", 67);
+    g.player.cash = 2000;
+    expect(g.hirePartner("summit").ok).toBe(true);
+    expect(g.s.partner?.id).toBe("felix");
+    expect(ACHIEVEMENT_BY_ID.kilo.check(g)).toBe(false);
+    g.s.flags.kilo = true;
+    expect(ACHIEVEMENT_BY_ID.kilo.check(g)).toBe(true);
+    for (const c of ["maple", "harbor", "neon"]) g.s.flags[`title_club_${c}`] = true;
+    expect(ACHIEVEMENT_BY_ID.grandslam.check(g)).toBe(false);
+    g.s.flags.title_club_ashgate = true;
+    expect(ACHIEVEMENT_BY_ID.grandslam.check(g)).toBe(true);
+  });
+
+  it("loads saves from 0.5, letting players already past the subway skip Kilo", () => {
+    const g = Game.create("Old", "street", 68);
+    const old = JSON.parse(g.save());
+    old.version = 5;
+    expect(Game.load(JSON.stringify(old)).s.flags.kilo).toBeUndefined();
+    old.visits.steelworks = 2;
+    expect(Game.load(JSON.stringify(old)).s.flags.kilo).toBe(true);
   });
 });

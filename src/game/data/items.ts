@@ -134,6 +134,34 @@ const items: ItemDef[] = [
   { id: "sesame", name: "Sesame Balls", kind: "food", price: 25, heal: 14, stats: { agility: 1, kick: 1 }, upTo: 99, takeout: true, flavor: "Crunchy outside, sweet inside." },
   { id: "meditate", name: "Meditate with Hu", kind: "service", price: 50, stats: { guts: 1, defense: 1 }, upTo: 99, gutsUp: "full", flavor: "You sit until your legs fall asleep. Then longer." },
 
+  // ---- Ashgate Heights ----
+  // Chez Margot
+  { id: "onionsoup", name: "French Onion Soup", kind: "food", price: 28, heal: 24, stats: { guts: 2, stamina: 5 }, upTo: 90, flavor: "A lid of melted cheese an inch thick." },
+  { id: "steakfrites", name: "Steak Frites", kind: "food", price: 55, heal: 50, stats: { punch: 2, strength: 2, stamina: 5 }, upTo: 90, flavor: "Rare, the way Margot insists." },
+  { id: "coqauvin", name: "Coq au Vin", kind: "food", price: 60, heal: 50, stats: { kick: 2, defense: 2, stamina: 5 }, upTo: 90, flavor: "Braised all afternoon. Worth every minute." },
+  { id: "souffle", name: "Chocolate Souffle", kind: "food", price: 40, heal: 30, stats: { agility: 1, stamina: 5 }, upTo: 90, flavor: "Rises in the oven. So will you." },
+  { id: "tasting", name: "Chef's Tasting Menu", kind: "food", price: 150, heal: "full", stats: { punch: 2, kick: 2, strength: 2, agility: 1, defense: 2, guts: 2, stamina: 10 }, upTo: 90, flavor: "Nine tiny courses. You leave stuffed anyway." },
+  // Saffron House
+  { id: "dal", name: "Lentil Dal", kind: "food", price: 20, heal: 20, stats: { stamina: 8 }, upTo: 90, flavor: "Humble, golden, endlessly filling." },
+  { id: "tandoori", name: "Tandoori Chicken", kind: "food", price: 45, heal: 40, stats: { strength: 2, punch: 1, stamina: 3 }, upTo: 90, flavor: "Charred red from the clay oven." },
+  { id: "vindaloo", name: "Lamb Vindaloo", kind: "food", price: 50, heal: 40, stats: { guts: 3, kick: 1 }, upTo: 90, flavor: "The waiter asks twice if you're sure." },
+  { id: "naan", name: "Garlic Naan", kind: "food", price: 16, heal: 16, stats: { defense: 1 }, upTo: 90, takeout: true, flavor: "Blistered, buttery, impossible to share." },
+  { id: "lassi", name: "Mango Lassi", kind: "food", price: 14, heal: 12, gutsUp: 8, stats: { agility: 1 }, upTo: 90, takeout: true, flavor: "Cold, sweet and thick as a milkshake." },
+  // Fenwick's Fine Foods
+  { id: "espresso", name: "Double Espresso", kind: "tonic", price: 12, gutsUp: 12, flavor: "Two sips. Your heart does a drum solo." },
+  { id: "truffles", name: "Box of Truffles", kind: "tonic", price: 35, heal: 45, flavor: "Dark chocolate in gold foil." },
+  { id: "royaljelly", name: "Royal Jelly", kind: "tonic", price: 120, heal: "full", gutsUp: "full", flavor: "A tiny jar that costs a fortune. Fixes everything." },
+  { id: "caviar", name: "Tin of Caviar", kind: "food", price: 90, heal: 30, stats: { punch: 1, kick: 1, defense: 1, guts: 1, stamina: 5 }, upTo: 99, takeout: true, flavor: "Salty little pearls. Very fancy." },
+  // The Ashgate Grand
+  { id: "spa", name: "Day Spa", kind: "service", price: 60, heal: "full", gutsUp: "full", flavor: "Cucumber slices. A robe. Silence." },
+  { id: "suite", name: "Penthouse Suite", kind: "service", price: 140, heal: "full", gutsUp: "full", buff: { stats: { punch: 4, defense: 6, guts: 6 }, turns: 200 }, flavor: "Silk sheets and a view of Crown Tower. You wake up ready." },
+
+  // ---- Second Chance Pawn: rare finds (only ever turn up in the pawn shop) ----
+  { id: "brass", name: "Brass Knuckles", kind: "gear", slot: "hands", price: 900, stats: { punch: 12, strength: 4 }, flavor: "Heavy, dented, and very persuasive." },
+  { id: "vintagekicks", name: "Vintage Kicks", kind: "gear", slot: "feet", price: 850, stats: { kick: 10, agility: 5 }, flavor: "Deadstock from 1985. Still bouncy." },
+  { id: "bikerjacket", name: "Biker Jacket", kind: "gear", slot: "body", price: 950, stats: { defense: 15, guts: 2 }, flavor: "Patches from clubs that don't exist anymore." },
+  { id: "pocketwatch", name: "Grandpa's Pocket Watch", kind: "gear", slot: "charm", price: 800, stats: { guts: 6, defense: 3, agility: 2 }, flavor: "Still ticking. Somebody's grandpa misses it." },
+
   // ---- Street vendors ----
   { id: "hotdog", name: "Hot Dog", kind: "food", price: 4, heal: 8, stats: { strength: 1 }, upTo: 35, takeout: true, flavor: "Mustard, onions, mystery meat." },
   { id: "tacos", name: "Street Tacos", kind: "food", price: 6, heal: 12, stats: { kick: 1 }, upTo: 35, flavor: "Three for six. A steal." },
@@ -148,6 +176,7 @@ const items: ItemDef[] = [
   { id: "goldengloves", name: "Golden Gloves", kind: "gear", slot: "hands", price: 300, stats: { punch: 6, kick: 2 }, flavor: "Won fair and square in the Maple Street ring." },
   { id: "anchorbelt", name: "Anchor Belt", kind: "gear", slot: "charm", price: 600, stats: { guts: 5, strength: 4, defense: 3 }, flavor: "The Harbor Hammer's old title belt." },
   { id: "neonjacket", name: "Neon Champion Jacket", kind: "gear", slot: "body", price: 1200, stats: { defense: 14, agility: 3 }, flavor: "It glows. Everyone knows who you are." },
+  { id: "platkicks", name: "Platinum Kicks", kind: "gear", slot: "feet", price: 1600, stats: { kick: 14, agility: 4, defense: 2 }, flavor: "The Velvet Glove's own shoes. They've never lost a fight." },
   // ---- Earned on the street (never sold) ----
   { id: "rivalband", name: "Dex's Headband", kind: "gear", slot: "charm", price: 400, stats: { punch: 3, kick: 3, agility: 2, guts: 3 }, flavor: "Your old rival's lucky headband. He insisted." },
 ];

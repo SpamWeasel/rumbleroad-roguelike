@@ -5,7 +5,15 @@ import { ITEMS, type ItemDef } from "./data/items";
 import { BOARDS, BYSTANDERS, CLIENTS, type Job, PARCELS, RIVAL, WANTED_NAMES } from "./data/jobs";
 import { OBJECTS } from "./data/objects";
 import { PARTNER_BY_GYM, PARTNER_CUT, PARTNER_GLYPH, PARTNERS } from "./data/partners";
-import { SHOPS } from "./data/shops";
+import {
+  PAWN_BUYS,
+  PAWN_DISCOUNT,
+  PAWN_MIN,
+  PAWN_RARE,
+  SHOPS,
+  TAILOR_MAX,
+  TAILOR_STEP,
+} from "./data/shops";
 import { STYLES, type StyleId } from "./data/styles";
 import { TECHNIQUES } from "./data/techniques";
 import { computeFov, lineOfFire } from "./fov";
@@ -25,6 +33,8 @@ import {
   type Fighter,
   type GameEvent,
   GEAR_SLOT_LABEL,
+  GEAR_SLOTS,
+  type GearSlot,
   type LogLine,
   type Mode,
   type Player,
@@ -51,8 +61,9 @@ import {
  * Version 3 added fighting styles, jobs and the rival.
  * Version 4 added partners, New Game+ and running totals.
  * Version 5 added the day/night clock.
+ * Version 6 added the Kennel, Ashgate Heights and tailored gear.
  */
-export const SAVE_VERSION = 5;
+export const SAVE_VERSION = 6;
 /** A turn is a minute. New games start at 8:00; night runs from 21:00 to 5:00. */
 export const DAY_START = 8 * 60;
 export const NIGHT_FROM = 21 * 60;
@@ -61,7 +72,7 @@ export const NIGHT_TO = 5 * 60;
 export const MAX_JOBS = 3;
 export const POCKET_SIZE = 8;
 /** Towns on the bus line, in order; each stop along the way costs BUS_FARE. */
-const BUS_TOWNS = ["maple", "harbor", "neon"];
+const BUS_TOWNS = ["maple", "harbor", "neon", "ashgate"];
 const BUS_FARE = 8;
 const BUS_MINUTES = 40;
 /** Night crews carry more cash. */
@@ -275,6 +286,7 @@ export class Game {
     p.cash = keep.cash;
     p.pockets = keep.pockets;
     p.gear = keep.gear;
+    p.tailored = keep.tailored;
     p.techniques = keep.techniques;
     p.selected = keep.selected;
     p.kos = keep.kos;
@@ -324,6 +336,13 @@ export class Game {
       // 0.4 saves: the clock starts now.
       state.clock = 0;
       state.tally = Object.assign({ meals: 0, nightKos: 0 }, state.tally);
+      state.version = 5;
+    }
+    if (state.version === 5) {
+      // 0.5 saves: the Kennel and Ashgate Heights are new. Anyone already past the subway has
+      // dealt with the Chrome Dogs, so Kilo doesn't block the way back.
+      const past = ["steelworks", "lobby", "roof"].some((a) => state.visits?.[a]);
+      if (past || state.flags?.varga) state.flags.kilo = true;
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -403,7 +422,7 @@ export class Game {
   stat(key: AnyStat): number {
     const p = this.s.player;
     let v = p.base[key];
-    for (const id of Object.values(p.gear)) if (id) v += ITEMS[id]?.stats?.[key] ?? 0;
+    for (const slot of GEAR_SLOTS) v += this.gearStats(slot)[key] ?? 0;
     for (const b of p.buffs) v += b.stats[key] ?? 0;
     if (key === "agility" && p.style === "runner" && this.isNight()) v += 3;
     return Math.max(1, Math.min(key === "stamina" ? STAMINA_CAP : STAT_CAP, v));
@@ -411,6 +430,34 @@ export class Game {
 
   maxHp(): number {
     return this.stat("stamina");
+  }
+
+  /** What the gear in a slot adds right now, tailoring included. */
+  gearStats(slot: GearSlot): StatBonus {
+    const id = this.s.player.gear[slot];
+    if (!id) return {};
+    return tailoredStats(ITEMS[id]?.stats ?? {}, this.s.player.tailored?.[slot] ?? 0);
+  }
+
+  /** The name of what's worn in a slot, with "+2" for tailoring. */
+  gearName(slot: GearSlot): string {
+    const id = this.s.player.gear[slot];
+    if (!id) return "";
+    const n = this.s.player.tailored?.[slot] ?? 0;
+    return `${ITEMS[id].name}${n ? ` +${n}` : ""}`;
+  }
+
+  /** Puts on a piece of gear, trading in whatever was in that slot. Returns the trade-in. */
+  private wear(item: ItemDef): { old: string | undefined; refund: number } {
+    const p = this.s.player;
+    const slot = item.slot as GearSlot;
+    const old = p.gear[slot];
+    const refund = old ? Math.floor(ITEMS[old].price / 4) : 0;
+    p.cash += refund;
+    p.gear[slot] = item.id;
+    if (p.tailored) delete p.tailored[slot];
+    p.hp = Math.min(p.hp, this.maxHp());
+    return { old, refund };
   }
 
   maxGuts(): number {
@@ -933,7 +980,7 @@ export class Game {
     const d: Dir = dir ?? p.facing;
     p.facing = d;
     const front = this.enemyAt(p.x + d[0], p.y + d[1]);
-    const needsFront = ["haymaker", "uppercut", "flurry", "headbutt", "toss", "hundred"];
+    const needsFront = ["haymaker", "uppercut", "flurry", "headbutt", "toss", "hundred", "knee"];
     if (needsFront.includes(t.id) && !front) {
       this.notice("Nobody in reach.");
       return false;
@@ -1092,6 +1139,23 @@ export class Game {
           for (let dx = -2; dx <= 2; dx++)
             if (dx || dy)
               this.events.push({ type: "flash", x: p.x + dx, y: p.y + dy, color: C.yellow });
+        break;
+      case "knee": {
+        const target = front as Enemy;
+        const crush = target.down > 0 || target.stun > 0;
+        this.strike(p, target, this.kickRaw() * (crush ? 2.2 : 1.6), {
+          ...opts,
+          verb: crush ? "knee-crush" : "rising-knee",
+          sound: "kick",
+          stun: 2,
+          sure: true,
+        });
+        break;
+      }
+      case "counter":
+        p.buffs = p.buffs.filter((b) => !b.counter);
+        p.buffs.push({ stats: {}, turns: 3, name: "Counter Stance", counter: true });
+        this.log("You settle into a loose, ready stance.", C.light);
         break;
       case "hundred":
         for (let i = 0; i < 6; i++) {
@@ -1356,6 +1420,21 @@ export class Game {
     const p = this.s.player;
     const byPlayer = attacker === p;
     const friendly = byPlayer || !!(attacker as Enemy).ally;
+    // Someone already knocked out can't keep swinging (a counter can drop them mid-flurry).
+    if (!byPlayer && attacker.hp <= 0) return;
+    if (target === p && !friendly && cheb(attacker, p) === 1 && p.buffs.some((b) => b.counter)) {
+      const foe = attacker as Enemy;
+      this.log(`You slip ${foe.name}'s ${o.verb} and counter!`, C.yellow);
+      this.pop(p.x, p.y - 1, "COUNTER", C.yellow);
+      this.strike(p, foe, this.punchRaw() * 1.4 + this.stat("guts") * 0.2, {
+        dir: [sign(foe.x - p.x), sign(foe.y - p.y)],
+        verb: "counter",
+        sound: "punch",
+        knock: 1,
+        sure: true,
+      });
+      return;
+    }
     const atkAgi = byPlayer ? this.stat("agility") : (attacker as Enemy).stats.agility;
     const defAgi = target === p ? this.stat("agility") : (target as Enemy).stats.agility;
     const def = target === p ? this.stat("defense") : (target as Enemy).stats.defense;
@@ -2139,18 +2218,40 @@ export class Game {
     // Bosses call for backup once when badly hurt.
     if (e.hp < e.maxHp * 0.5 && !this.s.flags[`${e.kind}_called`]) {
       this.s.flags[`${e.kind}_called`] = true;
-      this.summon(e, e.kind === "varga" ? 3 : 2);
+      this.summon(e, e.kind === "varga" || e.kind === "kilo" ? 3 : 2);
       return 100;
     }
-    if (e.kind === "varga" && e.hp < e.maxHp * 0.25 && !this.s.flags.varga_called2) {
-      this.s.flags.varga_called2 = true;
-      this.summon(e, 3);
+    if (
+      (e.kind === "varga" || e.kind === "kilo") &&
+      e.hp < e.maxHp * 0.25 &&
+      !this.s.flags[`${e.kind}_called2`]
+    ) {
+      this.s.flags[`${e.kind}_called2`] = true;
+      this.summon(e, e.kind === "kilo" ? 2 : 3);
       return 100;
     }
     if (dist === 1) {
       if (e.cooldown === 0 && this.rng.chance(0.45)) {
         e.cooldown = e.kind === "gnash" ? 4 : 3;
-        const move = e.kind === "varga" ? "crusher" : e.kind === "mara" ? "flurry" : "slam";
+        const move =
+          e.kind === "varga"
+            ? "crusher"
+            : e.kind === "mara"
+              ? "flurry"
+              : e.kind === "kilo"
+                ? "maul"
+                : "slam";
+        if (move === "maul") {
+          this.log(`${e.name} snarls and tears into you!`, e.color);
+          for (let i = 0; i < 3 && this.s.player.hp > 0 && cheb(e, p) === 1 && e.hp > 0; i++)
+            this.strike(e, p, this.enemyPunch(e) * 0.7, {
+              dir,
+              verb: "maul",
+              sound: "punch",
+              knock: i === 2 ? 1 : 0,
+            });
+          return 130;
+        }
         if (move === "flurry") {
           this.log(`${e.name} becomes a blur of kicks!`, e.color);
           for (let i = 0; i < 4 && this.s.player.hp > 0 && cheb(e, p) === 1; i++)
@@ -2184,7 +2285,7 @@ export class Game {
       dist >= 2 &&
       dist <= 4 &&
       e.cooldown === 0 &&
-      (e.kind === "mara" || e.kind === "varga")
+      (e.kind === "mara" || e.kind === "varga" || e.kind === "kilo")
     ) {
       e.cooldown = 4;
       let moved = 0;
@@ -2194,7 +2295,15 @@ export class Game {
         moved++;
       }
       if (cheb(e, p) === 1) {
-        if (e.kind === "mara") {
+        if (e.kind === "kilo") {
+          this.log(`${e.name} pounces!`, e.color);
+          this.strike(e, p, this.enemyPunch(e) * 1.4, {
+            dir,
+            verb: "pounce on",
+            sound: "slam",
+            down: 1,
+          });
+        } else if (e.kind === "mara") {
           this.log(`${e.name} launches a flying kick!`, e.color);
           this.strike(e, p, this.enemyKick(e) * 1.4, {
             dir,
@@ -2295,7 +2404,12 @@ export class Game {
 
   private summon(boss: Enemy, count: number): void {
     const gang = this.area.gang ?? "rats";
-    this.log(`${boss.name} whistles. "Get in here, boys!"`, boss.color);
+    this.log(
+      boss.kind === "kilo"
+        ? `${boss.name} lets out a howl. The pack comes running!`
+        : `${boss.name} whistles. "Get in here, boys!"`,
+      boss.color,
+    );
     let placed = 0;
     for (let r = 2; r <= 6 && placed < count; r++) {
       for (const d of DIRS8) {
@@ -2409,8 +2523,7 @@ export class Game {
   // Shops and gyms
 
   shopLines(shopId: string): ShopLine[] {
-    const shop = SHOPS[shopId];
-    return shop.stock.map((id) => {
+    return this.stockOf(shopId).map((id) => {
       const item = ITEMS[id];
       const gains = item.stats && item.kind !== "gear" ? this.possibleGains(item) : null;
       return {
@@ -2443,10 +2556,94 @@ export class Game {
   priceOf(shopId: string, itemId: string): number {
     let price = ITEMS[itemId].price;
     if (this.specialOf(shopId) === itemId) price = Math.max(1, Math.round(price * 0.6));
+    if (SHOPS[shopId]?.kind === "pawn" && !PAWN_RARE.includes(itemId))
+      price = Math.round(price * PAWN_DISCOUNT);
     // Hustlers haggle everything down a little.
     if (this.s.player.style === "hustler" && price > 1)
       price = Math.max(1, Math.round(price * 0.9));
     return price;
+  }
+
+  /** What a shop has for sale. The pawn shop's cases change with every visit to the town. */
+  stockOf(shopId: string): string[] {
+    const shop = SHOPS[shopId];
+    if (!shop) return [];
+    if (shop.kind !== "pawn") return shop.stock;
+    const town = Object.values(AREAS).find(
+      (a) => a.doors && Object.values(a.doors).includes(shopId),
+    );
+    const visit = this.s.visits[town?.id ?? this.area.id] ?? 1;
+    const rng = new Rng(hashSeed(this.s.seed, hashString(shopId), visit));
+    // Worthwhile pieces from every other shop in the city (no starter gear).
+    const used = Object.values(SHOPS)
+      .flatMap((s) => s.stock)
+      .filter((id) => ITEMS[id]?.kind === "gear" && ITEMS[id].price >= PAWN_MIN);
+    const pool = [...new Set(used)];
+    const picks: string[] = [];
+    while (picks.length < 4 && pool.length)
+      picks.push(...pool.splice(rng.int(0, pool.length - 1), 1));
+    picks.sort((a, b) => ITEMS[a].price - ITEMS[b].price);
+    picks.push(rng.pick(PAWN_RARE));
+    return picks;
+  }
+
+  /** What the pawn shop pays for the thing in a pocket. */
+  sellPrice(itemId: string): number {
+    return Math.max(1, Math.floor((ITEMS[itemId]?.price ?? 0) * PAWN_BUYS));
+  }
+
+  sell(shopId: string, index: number): { ok: boolean; message: string } {
+    const p = this.s.player;
+    const id = p.pockets[index];
+    if (SHOPS[shopId]?.kind !== "pawn") return { ok: false, message: "They don't buy here." };
+    if (!id) return { ok: false, message: "Your pockets are empty." };
+    const price = this.sellPrice(id);
+    p.pockets.splice(index, 1);
+    p.cash += price;
+    this.sound("coin");
+    const msg = `You sell the ${ITEMS[id].name} for $${price}.`;
+    this.log(msg, C.cyan);
+    return { ok: true, message: msg };
+  }
+
+  /** What tailoring the gear in a slot once more costs, or null if it can't be done. */
+  tailorPrice(slot: GearSlot): number | null {
+    const p = this.s.player;
+    const id = p.gear[slot];
+    const n = p.tailored?.[slot] ?? 0;
+    if (!id || n >= TAILOR_MAX || !ITEMS[id].stats) return null;
+    return Math.max(40, Math.round(ITEMS[id].price * 0.5 * (n + 1)));
+  }
+
+  /** What the gear in a slot would add after one more round of tailoring. */
+  tailorPreview(slot: GearSlot): StatBonus {
+    const id = this.s.player.gear[slot];
+    if (!id) return {};
+    return tailoredStats(ITEMS[id].stats ?? {}, (this.s.player.tailored?.[slot] ?? 0) + 1);
+  }
+
+  tailor(shopId: string, slot: GearSlot): { ok: boolean; message: string } {
+    const p = this.s.player;
+    if (SHOPS[shopId]?.kind !== "tailor") return { ok: false, message: "No tailor here." };
+    const id = p.gear[slot];
+    if (!id) return { ok: false, message: `You aren't wearing anything there.` };
+    const price = this.tailorPrice(slot);
+    if (price === null)
+      return {
+        ok: false,
+        message: "\"That's as good as it gets, dear. Any more and it'd fall apart.\"",
+      };
+    if (p.cash < price) {
+      this.sound("deny");
+      return { ok: false, message: `You need $${price - p.cash} more.` };
+    }
+    p.cash -= price;
+    p.tailored = p.tailored ?? {};
+    p.tailored[slot] = (p.tailored[slot] ?? 0) + 1;
+    this.sound("levelup");
+    const msg = `Mrs. Hartwell takes in a seam here, adds padding there. ${this.gearName(slot)}: ${describeBonus(this.gearStats(slot))}.`;
+    this.log(msg, C.lime);
+    return { ok: true, message: msg };
   }
 
   /** What a technique costs you (all-rounders learn cheaper). */
@@ -2467,7 +2664,7 @@ export class Game {
   buy(shopId: string, itemId: string, bag = false): { ok: boolean; message: string } {
     const p = this.s.player;
     const item = ITEMS[itemId];
-    if (!SHOPS[shopId]?.stock.includes(itemId) || !item)
+    if (!this.stockOf(shopId).includes(itemId) || !item)
       return { ok: false, message: "That's not sold here." };
     if (!this.shopOpen(shopId)) return { ok: false, message: "It's closed right now." };
     if (item.kind === "book" && this.s.soldOut.includes(itemId))
@@ -2490,15 +2687,8 @@ export class Game {
       return { ok: true, message: `${item.name} is in your pocket.` };
     }
     if (item.kind === "gear" && item.slot) {
-      const old = p.gear[item.slot];
-      let note = "";
-      if (old) {
-        const refund = Math.floor(ITEMS[old].price / 4);
-        p.cash += refund;
-        note = ` Traded in your ${ITEMS[old].name} for $${refund}.`;
-      }
-      p.gear[item.slot] = itemId;
-      p.hp = Math.min(p.hp, this.maxHp());
+      const { old, refund } = this.wear(item);
+      const note = old ? ` Traded in your ${ITEMS[old].name} for $${refund}.` : "";
       this.sound("buy");
       const msg = `You put on the ${item.name} (${GEAR_SLOT_LABEL[item.slot]}).${note}`;
       this.log(msg, C.cyan);
@@ -2516,7 +2706,7 @@ export class Game {
     this.sound(item.kind === "food" ? "eat" : "buy");
     this.log(`${item.name}: ${item.flavor}`, C.cyan);
     if (item.kind === "food") this.s.tally.meals++;
-    if (itemId === "nap" && this.isNight()) this.sleepUntilMorning();
+    if ((itemId === "nap" || itemId === "suite") && this.isNight()) this.sleepUntilMorning();
     const gains = this.applyConsumable(item);
     const statGain = gains.some((g) => !g.includes("health") && !g.includes("guts"));
     let message = gains.length ? gains.join(", ") : "Tasty, but it doesn't do much for you now.";
@@ -2967,7 +3157,6 @@ export class Game {
 
   private rivalBeaten(e: Enemy, at: { x: number; y: number }): void {
     const r = this.s.rival;
-    const p = this.s.player;
     r.wins++;
     const line = RIVAL.beaten[Math.min(r.wins, RIVAL.beaten.length) - 1];
     this.log(`${RIVAL.name} goes down! ${line}`, RIVAL.color);
@@ -2978,10 +3167,7 @@ export class Game {
     this.log(`A crowd watched the whole thing. They toss you $${purse}.`, C.gold);
     if (r.wins >= RIVAL.wins) {
       const prize = ITEMS.rivalband;
-      const old = p.gear.charm;
-      const refund = old ? Math.floor(ITEMS[old].price / 4) : 0;
-      p.cash += refund;
-      p.gear.charm = prize.id;
+      const { old, refund } = this.wear(prize);
       this.sound("levelup");
       this.log(
         `You put on ${prize.name} (${describeBonus(prize.stats ?? {})}).${old ? ` Your ${ITEMS[old].name} sells for $${refund}.` : ""}`,
@@ -3123,11 +3309,9 @@ export class Game {
         s.flags[titleFlag] = true;
         const prize = ITEMS[bout.champion.prize];
         if (prize?.slot) {
-          const old = p.gear[prize.slot];
-          if (old) p.cash += Math.floor(ITEMS[old].price / 4);
-          p.gear[prize.slot] = prize.id;
+          const { old, refund } = this.wear(prize);
           this.log(
-            `You're the new champ! You win the ${prize.name} (${describeBonus(prize.stats ?? {})}) and put it on.${old ? ` Your ${ITEMS[old].name} goes to a fan for $${Math.floor(ITEMS[old].price / 4)}.` : ""}`,
+            `You're the new champ! You win the ${prize.name} (${describeBonus(prize.stats ?? {})}) and put it on.${old ? ` Your ${ITEMS[old].name} goes to a fan for $${refund}.` : ""}`,
             C.yellow,
           );
         }
@@ -3233,6 +3417,15 @@ export function describeItem(item: ItemDef): string {
 }
 
 /** Which town a shop is in, by name. */
+/** Gear bonuses after tailoring: each round adds a share of every stat (always at least +1). */
+export function tailoredStats(stats: StatBonus, times: number): StatBonus {
+  if (!times) return stats;
+  const out: StatBonus = {};
+  for (const [k, v] of Object.entries(stats) as [AnyStat, number][])
+    out[k] = v + Math.max(1, Math.ceil(v * TAILOR_STEP * times));
+  return out;
+}
+
 export function shopTown(shopId: string): string {
   for (const a of Object.values(AREAS))
     if (a.doors && Object.values(a.doors).includes(shopId)) return a.name;

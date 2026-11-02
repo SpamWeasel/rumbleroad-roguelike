@@ -44,8 +44,16 @@ export const BOARDS: Record<string, BoardDef> = {
     town: "neon",
     districts: ["park", "subway", "steelworks"],
     gangs: ["dogs", "crowns"],
-    deliveries: ["pete", "tide", "mae", "apoth", "crust"],
+    deliveries: ["pete", "tide", "mae", "apoth", "crust", "margot", "saffron"],
     pay: 5,
+  },
+  board_ashgate: {
+    id: "board_ashgate",
+    town: "ashgate",
+    districts: ["park", "subway", "steelworks"],
+    gangs: ["dogs", "crowns"],
+    deliveries: ["rosa", "lucky", "pete", "tide", "mikes", "juice", "mae"],
+    pay: 6.5,
   },
 };
 
@@ -83,6 +91,8 @@ export const CLIENTS = [
   "a street musician",
   "the laundromat ladies",
   "a cab driver named Lou",
+  "Mrs. Hartwell the tailor",
+  "the Grand's head concierge",
 ];
 
 export const WANTED_NAMES = [

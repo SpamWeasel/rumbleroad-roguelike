@@ -7,6 +7,7 @@ import { type Action, settings } from "./settings";
  * Playing:  stick / d-pad move (stick gives diagonals)   A punch   B kick   X special
  *           Y guard   LB wait   RB next special   LT grab   RT throw   View pockets
  *           Menu (start) menu   L3 log   R3 rest
+ *           View + RB / View + LB walk to the next / previous area (View alone opens pockets)
  * Menus:    stick / d-pad choose   A confirm   B back   X "take to go"   LB/RB switch tabs
  */
 const PLAY_BUTTONS: Record<number, Action> = {
@@ -54,6 +55,8 @@ const MENU_DIRS: Record<string, string> = {
 
 export class GamepadInput {
   private held = new Set<number>();
+  /** View is held as a modifier; true once it was used with another button. */
+  private viewChord = false;
   private dir = "";
   private dirSince = 0;
   private dirRepeatAt = 0;
@@ -71,6 +74,17 @@ export class GamepadInput {
       if (down && !this.held.has(i)) {
         this.held.add(i);
         if (i >= 12 && i <= 15) continue; // d-pad handled below
+        if (playing && i === 8) {
+          // View works on release, so it can also be held with a bumper for quick travel.
+          this.viewChord = false;
+          continue;
+        }
+        if (playing && (i === 4 || i === 5) && this.held.has(8)) {
+          this.viewChord = true;
+          const code = settings.keys[i === 5 ? "travelOn" : "travelBack"][0];
+          if (code) send(code, false);
+          continue;
+        }
         if (playing) {
           const action = PLAY_BUTTONS[i];
           const code = action ? settings.keys[action][0] : undefined;
@@ -80,7 +94,13 @@ export class GamepadInput {
           if (code === "ShiftTab") send("Tab", false, true);
           else if (code) send(code, false);
         }
-      } else if (!down) this.held.delete(i);
+      } else if (!down && this.held.has(i)) {
+        this.held.delete(i);
+        if (i === 8 && playing && !this.viewChord) {
+          const code = settings.keys.pockets[0];
+          if (code) send(code, false);
+        }
+      }
     }
     // Direction from the d-pad or the left stick, repeating while held.
     const b = pad.buttons;

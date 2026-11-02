@@ -23,7 +23,8 @@ Electron setup is copied from Hollowdeep.
   still upgrades 0.1 saves. 3 slots in `%APPDATA%\RumbleRow\Saves\slotN.json`, rolling
   backups in `Saves\Backups\slotN` (5 kept, at most every 3 minutes or on area change); a
   damaged slot loads its newest good backup. The game saves on area change, after purchases,
-  every 40 turns and when the window closes (main asks the window first).
+  every 40 turns and when the window closes (main asks the window first). Writes to one file go
+  through `queued` in main (0.6): two saves at once used to race on the same `.tmp` file.
 - **Difficulty** (`DIFFICULTY` in types.ts) scales gang health/cash via `Game.toughen` (call it
   for every newly spawned enemy) and enemy damage in `strike`/throws.
 - **Fight clubs**: `data/arena.ts` (bouts) + door `8` in each town + `arena_*` areas. Losing a
@@ -60,6 +61,15 @@ Electron setup is copied from Hollowdeep.
   `checkAchievements` after every action and keeps them in the `profile` data file (across games).
   `StyleDef.unlock` names the achievement a style needs (Wrestler: champ, Night Runner: night_owl).
   Save version 5 (0.4 saves upgrade).
+- **Uptown** (0.6): subway > `kennel` (static, boss Kilo, locked ">") > `ashgate` (4th town,
+  doors 1-9 + H) > steelworks. Steelworks is depth 10, lobby/roof 11. Shop kinds `tailor`
+  (`tailor(slot)`, `player.tailored`, `tailoredStats`: +15% per fitting, min +1, max
+  `TAILOR_MAX`; reset by `wear`) and `pawn` (`stockOf` is seeded per town visit: 4
+  second-hand pieces >= `PAWN_MIN` at `PAWN_DISCOUNT` + one of `PAWN_RARE`; `sell` pockets
+  for `PAWN_BUYS`). Always read stock through `Game.stockOf`, gear bonuses through
+  `gearStats`/`gearName`, and put gear on with `wear`. Counter Stance is a buff with
+  `counter: true` checked at the top of `strike`. Save version 6 (0.5 saves past the subway
+  get `flags.kilo`).
 - **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
   picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
@@ -84,6 +94,9 @@ Electron setup is copied from Hollowdeep.
   catch-up). New Game+ 1 is won by the bot with 0-2 KOs, slowly (it grinds before bosses).
 - 0.5 with nights (the bot ignores the clock): Normal ~10,100 turns / ~6 KOs with partners,
   ~12,000 / ~6.5 solo; Hard ~13,200 / ~8. All win. Night with 2 extra groups was too grindy.
+- 0.6 with Ashgate: Normal ~10,100 / ~6 with partners, ~11,000 / ~6 solo; Easy ~7,900 / ~2;
+  Hard ~11,100 / ~8.5. All win. Ashgate removed the 0.5 wall before the tower (shopping trips
+  were 3 areas long), so Varga was buffed to 820 health; the roof fight is ~45-100 turns.
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -94,7 +107,8 @@ Electron setup is copied from Hollowdeep.
 - The browser pane's screenshots can go stale; trust `pnpm smoke` screenshots for visuals.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
 - `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, partner,
-  sheet, street, night, bus, help, achievements, ending, arena, bout and saves (backup
+  sheet, street, night, bus, kennel, ashgate, tailor, pawn, help, achievements, ending, arena,
+  bout and saves (backup
   recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.
   `node scripts/smoke.mjs <path\to\RumbleRow.exe>` runs the same check on a packaged build.

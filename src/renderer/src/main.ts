@@ -121,6 +121,33 @@ async function smoke(app: App, scene: string): Promise<void> {
         const plus = Game.newGamePlus(g, 99);
         if (plus.s.plus !== 1) errors.push("New Game+ did not start");
       }
+      if (["kennel", "ashgate", "tailor", "pawn"].includes(scene)) {
+        const g = app.game as Game;
+        const inside = g as unknown as { enterArea(id: string, arrive: string): void };
+        if (scene === "kennel") {
+          // Face to face with Kilo Marsh in the Kennel.
+          inside.enterArea("kennel", "<");
+          const boss = g.area.enemies.find((e) => e.boss);
+          if (boss?.kind !== "kilo") errors.push("Kilo is not in the Kennel");
+          else {
+            g.player.x = boss.x - 4;
+            g.player.y = boss.y;
+            boss.awake = true;
+          }
+          g.area.lit = true;
+          g.updateView();
+        } else {
+          inside.enterArea("ashgate", "<");
+          g.player.cash = 2600;
+          g.player.gear = { body: "vest", hands: "weighted", feet: "fightshoes" };
+          g.player.tailored = { body: 2, hands: 1 };
+          g.player.pockets = ["herbal", "bandage", "firecracker"];
+          if (g.stockOf("pawn").length !== 5) errors.push("pawn shop stock is wrong");
+          if (scene === "tailor") app.push(new ShopScreen(app, "tailor"));
+          if (scene === "pawn") app.push(new ShopScreen(app, "pawn"));
+        }
+        play.flush();
+      }
       if (scene === "board") {
         const g = app.game as Game;
         const first = g.boardOffers("board_maple")[0];

@@ -121,10 +121,12 @@ export interface Player extends Fighter {
   guard: boolean;
   facing: Dir;
   /** Temporary boosts from tonics: stat bonus and turns left. */
-  buffs: { stats: StatBonus; turns: number; name: string }[];
+  buffs: { stats: StatBonus; turns: number; name: string; counter?: boolean }[];
   kos: number;
   /** Hits in a row on one foe, for combo finishers (enemy id, count, turn of the last hit). */
   combo?: { id: number; n: number; turn: number };
+  /** Times each worn piece of gear has been tailored (reset when it's replaced). */
+  tailored?: Partial<Record<GearSlot, number>>;
   /** Turns since the last health/guts trickle. */
   regenClock: number;
 }

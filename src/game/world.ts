@@ -1,7 +1,18 @@
 import type { Color } from "./colors";
 import { ARENA_MAP } from "./data/arena";
 import { BOSSES, GANGS, NICKNAMES, RANKS, type Rank } from "./data/enemies";
-import { HARBOR, LIGHTHOUSE, LOBBY, MAPLE, NEON, PIER9, ROOF, TRAINYARD } from "./data/maps";
+import {
+  ASHGATE,
+  HARBOR,
+  KENNEL,
+  LIGHTHOUSE,
+  LOBBY,
+  MAPLE,
+  NEON,
+  PIER9,
+  ROOF,
+  TRAINYARD,
+} from "./data/maps";
 import { OBJECT_BY_LETTER } from "./data/objects";
 import { type GenKind, generateDistrict, type StreetTheme } from "./generate";
 import { distanceMap } from "./grid";
@@ -205,26 +216,62 @@ def({
   gang: "dogs",
   gen: "tunnel",
   sight: 7,
-  exits: { "<": { to: "park", arrive: ">" }, ">": { to: "steelworks", arrive: "<" } },
+  exits: { "<": { to: "park", arrive: ">" }, ">": { to: "kennel", arrive: "<" } },
   intro: "The Underline. Dark tunnels, flickering lamps, distant rumbling.",
+});
+def({
+  id: "kennel",
+  name: "The Kennel",
+  kind: "static",
+  depth: 8,
+  gang: "dogs",
+  map: KENNEL,
+  boss: "kilo",
+  locked: { ">": "kilo" },
+  sight: 9,
+  exits: { "<": { to: "subway", arrive: ">" }, ">": { to: "ashgate", arrive: "<" } },
+  intro:
+    "The Kennel: an old subway depot the Chrome Dogs made their own. Chains rattle somewhere in the dark.",
+});
+def({
+  id: "ashgate",
+  name: "Ashgate Heights",
+  kind: "town",
+  depth: 8,
+  map: ASHGATE,
+  doors: {
+    "1": "margot",
+    "2": "saffron",
+    "3": "fenwick",
+    "4": "tailor",
+    "5": "summit",
+    "6": "pawn",
+    "7": "grand",
+    "8": "club_ashgate",
+    "9": "board_ashgate",
+    H: "bus_ashgate",
+  },
+  exits: { "<": { to: "kennel", arrive: ">" }, ">": { to: "steelworks", arrive: "<" } },
+  intro:
+    "Ashgate Heights. Old money, clean sidewalks, and Crown Tower close enough to see the guards.",
 });
 def({
   id: "steelworks",
   name: "Steelworks Site",
   kind: "district",
-  depth: 9,
+  depth: 10,
   gang: "crowns",
   gen: "streets",
   theme: "construction",
   sight: 11,
-  exits: { "<": { to: "subway", arrive: ">" }, ">": { to: "lobby", arrive: "<" } },
+  exits: { "<": { to: "ashgate", arrive: ">" }, ">": { to: "lobby", arrive: "<" } },
   intro: "The Steelworks Site, at the foot of Crown Tower. Watch out for open pits.",
 });
 def({
   id: "lobby",
   name: "Crown Tower Lobby",
   kind: "static",
-  depth: 10,
+  depth: 11,
   gang: "crowns",
   map: LOBBY,
   sight: 14,
@@ -235,7 +282,7 @@ def({
   id: "roof",
   name: "Crown Tower Roof",
   kind: "static",
-  depth: 10,
+  depth: 11,
   gang: "crowns",
   map: ROOF,
   boss: "varga",
@@ -248,6 +295,7 @@ for (const [id, name] of [
   ["arena_maple", "The Boiler Room"],
   ["arena_harbor", "The Bilge"],
   ["arena_neon", "The Velvet Pit"],
+  ["arena_ashgate", "The Vault"],
 ] as const) {
   def({
     id,

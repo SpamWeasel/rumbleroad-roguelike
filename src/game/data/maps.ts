@@ -176,3 +176,44 @@ Y::%%%::::::::::::::::::::::::::::::::%%%::Y
 Y::::::::::::::::::::::::::::::::::::::::::Y
 YYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYYY
 `;
+
+/** The Chrome Dogs' hideout: an old subway depot under the river. */
+export const KENNEL = `
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+%PPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPcP%
+%PPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPP%
+%PPPPPPPPPPePPPPPPPPPPPPPPPPPPPPPPPPPPPePPPPPPPPPPPPPPPPPPPPPPPPP%
+%RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR%
+%;;;;;;;;;;;;;;;;;;;;k;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;%
+%RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR%
+%::::XX:::::::::::XXX::::::::::e:::::::::XXX::::::::::::XX:::::::%
+<:::::::::::::e::::::::::::::::::::::::::::::::::::::::::::::::::>
+<:::::::::::::::::::::::::::::::E::::::::::::::::::::&:::::::::::>
+%::::XX:::::::::::XXX:::::e::::::::::::::XXX:::::E::::::XX:::::::%
+%RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR%
+%;;;;;;;;p;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;;n;;;;;;;;;;;;;;;;;;%
+%RRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRRR%
+%PPPPPPPPPPPPPPPePPPPPPPPPPPPPPPPPPPPPPPPPPPPePPPPPPPPPPPPPPPPPPP%
+%PPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPPPPPOPPPP%
+%PPtPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPPrPPP%
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+`;
+
+export const ASHGATE = `
+########################################################################
+#WWWWWWWWWWWWW###%%%%%%%%%%%%%###NNNNNNNNNNNNN#########WWWWWWWWWWWWWWWW#
+#WWWWWWWWWWWWW###%%%%%%%%%%%%%###NNNNNNNNNNNNN#########WWWWWWWWWWWWWWWW#
+#WWWWWWWWWWWWW###%%%%%%%%%%%%%###NNNNNNNNNNNNN#########WWWWWWWWWWWWWWWW#
+#WWWWWW1WWWWWW###%%%%%%2%%%%%%###NNNNNN3NNNNNN##9######WWWWWWW4WWWWWWWW#
+#.....L.........L.........L.........L.........L.........L..............#
+<,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,,>
+<,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,--,,>
+<,,,,,,,,,C,,,,,,,,,,,,,,,,,,,,,,,,,C,,,,,,,,,,,,,,,,,,,,,,,,C,,,,,,,,,>
+#.....L.........L.........L.........L.........L.........L..............#
+#%%%%%%5%%%%%%%WWWWW6WWWWWW........................#######7#########H###
+#%%%%%%%%%%%%%%WWWWWWWWWWWW..""""""..B..B..""""""..#####################
+#%%%%%%%%%%%%%%WWWWWWWWWWWW.."T""".....FF....."T"..#####################
+#%%%%%%%%%%%%%%WWWWWWWWWWWW..""""".....FF....."""..8####################
+#%%%%%%%%%%%%%%WWWWWWWWWWWWt.B..................B.t#####################
+########################################################################
+`;

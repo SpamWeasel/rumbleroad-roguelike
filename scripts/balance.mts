@@ -21,6 +21,8 @@ const route = [
   "neon",
   "park",
   "subway",
+  "kennel",
+  "ashgate",
   "steelworks",
   "lobby",
   "roof",

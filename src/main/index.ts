@@ -203,7 +203,22 @@ async function readSlot(slot: number): Promise<SlotData | null> {
   return null;
 }
 
-async function writeSlot(slot: number, title: string, data: string): Promise<void> {
+/**
+ * Writes to the same file run one after another. Two saves fired at once (an area change and a
+ * purchase, say) used to race on the same temporary file, and the second rename failed.
+ */
+const writeQueues = new Map<string, Promise<unknown>>();
+function queued<T>(key: string, job: () => Promise<T>): Promise<T> {
+  const run = (writeQueues.get(key) ?? Promise.resolve()).catch(() => undefined).then(job);
+  writeQueues.set(key, run);
+  return run;
+}
+
+function writeSlot(slot: number, title: string, data: string): Promise<void> {
+  return queued(slotFile(slot), () => writeSlotNow(slot, title, data));
+}
+
+async function writeSlotNow(slot: number, title: string, data: string): Promise<void> {
   await mkdir(savesDir, { recursive: true });
   const target = slotFile(slot);
   // Keep a backup of the previous save now and then.
@@ -262,8 +277,10 @@ function registerIpc(): void {
   ipcMain.handle(IPC.deleteSlot, async (event, slot: unknown) => {
     assertTrusted(event);
     const n = slotNumber(slot);
-    await rm(slotFile(n), { force: true });
-    await rm(slotBackups(n), { recursive: true, force: true });
+    await queued(slotFile(n), async () => {
+      await rm(slotFile(n), { force: true });
+      await rm(slotBackups(n), { recursive: true, force: true });
+    });
   });
   ipcMain.handle(IPC.readData, async (event, name: unknown) => {
     assertTrusted(event);
@@ -275,9 +292,11 @@ function registerIpc(): void {
     if (!DATA_FILES.includes(name as never) || typeof text !== "string")
       throw new Error("Bad data file.");
     const target = join(userData, `${name}.json`);
-    await mkdir(userData, { recursive: true });
-    await writeFile(`${target}.tmp`, text);
-    await rename(`${target}.tmp`, target);
+    await queued(target, async () => {
+      await mkdir(userData, { recursive: true });
+      await writeFile(`${target}.tmp`, text);
+      await rename(`${target}.tmp`, target);
+    });
   });
   ipcMain.handle(IPC.copyText, (event, text: unknown) => {
     assertTrusted(event);

@@ -1,7 +1,6 @@
 import { C } from "../../../game/colors";
 import { CLUBS } from "../../../game/data/arena";
 import { BOSSES } from "../../../game/data/enemies";
-import { ITEMS } from "../../../game/data/items";
 import { RIVAL } from "../../../game/data/jobs";
 import { PARTNERS } from "../../../game/data/partners";
 import { STYLES } from "../../../game/data/styles";
@@ -58,7 +57,7 @@ export class CharacterScreen implements Screen {
     for (const k of ALL_STATS) {
       const base = p.base[k];
       let gear = 0;
-      for (const id of Object.values(p.gear)) if (id) gear += ITEMS[id]?.stats?.[k] ?? 0;
+      for (const slot of GEAR_SLOTS) gear += g.gearStats(slot)[k] ?? 0;
       let boost = 0;
       for (const b of p.buffs) boost += b.stats[k] ?? 0;
       t.text(lx, ly, STAT_LABEL[k], C.light);
@@ -74,7 +73,7 @@ export class CharacterScreen implements Screen {
     for (const slot of GEAR_SLOTS) {
       const id = p.gear[slot];
       t.text(lx, ly, GEAR_SLOT_LABEL[slot], C.light);
-      t.text(lx + 8, ly++, id ? ITEMS[id].name : "-", id ? C.white : C.dim, undefined, lx + 46);
+      t.text(lx + 8, ly++, id ? g.gearName(slot) : "-", id ? C.white : C.dim, undefined, lx + 46);
     }
     ly++;
     t.text(lx, ly++, "PARTNER", C.gray);

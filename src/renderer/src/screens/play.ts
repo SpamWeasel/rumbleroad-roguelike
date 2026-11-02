@@ -645,7 +645,7 @@ export class PlayScreen implements Screen {
     for (const slot of GEAR_SLOTS) {
       const id = p.gear[slot];
       t.text(x + 1, y, slot.slice(0, 1).toUpperCase() + slot.slice(1), C.gray);
-      t.text(x + 7, y++, id ? ITEMS[id].name : "-", id ? C.light : C.dim, undefined, x + SIDE_W);
+      t.text(x + 7, y++, id ? g.gearName(slot) : "-", id ? C.light : C.dim, undefined, x + SIDE_W);
     }
     if (p.held) {
       const o = OBJECTS[p.held];
@@ -875,6 +875,8 @@ export class PlayScreen implements Screen {
         arena: "Underground fight club",
         board: "Job board - bounties, deliveries, odd jobs",
         bus: "Bus stop - ride to towns you've reached",
+        tailor: "Tailor - improves the gear you wear",
+        pawn: "Pawn shop - second-hand gear, buys your stuff",
       };
       out.push({ text: shop.name, color: shop.color });
       out.push({ text: kinds[shop.kind] ?? "", color: C.gray });
