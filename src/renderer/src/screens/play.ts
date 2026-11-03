@@ -1,9 +1,10 @@
 import { C } from "../../../game/colors";
-import { BOSSES } from "../../../game/data/enemies";
+import { BOSSES, TRAITS, type Trait } from "../../../game/data/enemies";
 import { ITEMS } from "../../../game/data/items";
 import { BYSTANDERS } from "../../../game/data/jobs";
 import { OBJECTS } from "../../../game/data/objects";
 import { PARTNER_GLYPH, PARTNERS } from "../../../game/data/partners";
+import { QUEST_BY_ID, QUEST_GLYPH } from "../../../game/data/quests";
 import { SHOPS } from "../../../game/data/shops";
 import { TECHNIQUES } from "../../../game/data/techniques";
 import type { Game } from "../../../game/game";
@@ -25,6 +26,7 @@ import { CharacterScreen } from "./character";
 import { CityMapScreen } from "./citymap";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
+import { QuestLogScreen, SceneScreen, TalkScreen } from "./quests";
 import { ShopScreen } from "./shop";
 
 export const MAP_W = 76;
@@ -141,6 +143,9 @@ export class PlayScreen implements Screen {
       case "jobs":
         this.app.push(new JobsScreen(this.app));
         return;
+      case "quests":
+        this.app.push(new QuestLogScreen(this.app));
+        return;
       case "map":
         this.app.push(new CityMapScreen(this.app));
         return;
@@ -239,6 +244,8 @@ export class PlayScreen implements Screen {
     let area = false;
     let bout: "won" | "lost" | null = null;
     let impact = 0;
+    let talk: string | null = null;
+    let scene: string | null = null;
     for (const ev of g.events) {
       if (ev.type === "pop")
         this.pops.push({ ...ev, t0: now + this.pops.filter((p) => now - p.t0 < 100).length * 70 });
@@ -250,6 +257,8 @@ export class PlayScreen implements Screen {
       else if (ev.type === "area") area = true;
       else if (ev.type === "impact") impact = Math.max(impact, ev.power);
       else if (ev.type === "bout") bout = ev.result;
+      else if (ev.type === "talk") talk = ev.quest;
+      else if (ev.type === "scene") scene = ev.boss;
     }
     g.events.length = 0;
     if (impact) this.app.impact(impact);
@@ -298,6 +307,8 @@ export class PlayScreen implements Screen {
     }
     if (area) void this.app.save();
     else this.app.autosave();
+    if (talk) this.app.push(new TalkScreen(this.app, talk));
+    if (scene) this.app.push(new SceneScreen(this.app, scene));
     if (shop) {
       const kind = SHOPS[shop]?.kind;
       this.app.push(
@@ -497,7 +508,12 @@ export class PlayScreen implements Screen {
       if (it.kind === "cash") t.put(sx, sy, "$", C.gold);
       else if (it.kind === "object") t.put(sx, sy, OBJECTS[it.id].glyph, OBJECTS[it.id].color);
       else if (it.kind === "npc") t.put(sx, sy, "☺", BYSTANDERS[it.who]?.color ?? C.light);
-      else t.put(sx, sy, ITEMS[it.id]?.kind === "food" ? "%" : "!", C.lime);
+      else if (it.kind === "giver") {
+        const def = QUEST_BY_ID[it.quest];
+        // Highlighted in yellow when they have something to say.
+        if (g.questStatus(it.quest) === "active") t.put(sx, sy, QUEST_GLYPH, def?.color ?? C.light);
+        else t.put(sx, sy, QUEST_GLYPH, C.black, C.yellow);
+      } else t.put(sx, sy, ITEMS[it.id]?.kind === "food" ? "%" : "!", C.lime);
     }
     // Wind-up warnings.
     for (const e of a.enemies) {
@@ -666,6 +682,7 @@ export class PlayScreen implements Screen {
         x + SIDE_W,
       );
     }
+    if (p.bleed) t.text(x + 1, y++, `BLEEDING ${p.bleed.dmg}/turn (${p.bleed.turns})`, C.red);
     for (const b of p.buffs.slice(0, 2)) {
       t.text(x + 1, y++, `${b.name} ${b.turns}`, C.lime, undefined, x + SIDE_W);
     }
@@ -850,6 +867,16 @@ export class PlayScreen implements Screen {
       if (e.held) notes.push(`holding a ${OBJECTS[e.held].name}`);
       if (e.job) notes.push("bounty target");
       if (notes.length) out.push({ text: notes.join(", "), color: e.windup ? C.red : C.amber });
+      const how: Record<string, string> = {
+        cutter: "Knife cuts keep bleeding. Heal to stop it.",
+        medic: "Heals hurt friends. Take them out first!",
+        rider: "Charges in from a distance in a straight line.",
+        guard: "Blocks punches from the front. Kick, or flank.",
+        thrower: "Throws things from a distance.",
+        heavy: "Winds up huge swings. Step away or guard.",
+      };
+      if (how[e.ai]) out.push({ text: how[e.ai], color: C.gray });
+      if (e.trait) out.push({ text: TRAITS[e.trait as Trait]?.desc ?? "", color: C.amber });
       return out;
     }
     if (visible) {
@@ -864,6 +891,19 @@ export class PlayScreen implements Screen {
           const who = BYSTANDERS[it.who] ?? BYSTANDERS[0];
           out.push({ text: `${who.name}, ${who.what}`, color: who.color });
           out.push({ text: "Being shaken down! Knock out the gang around them.", color: C.amber });
+        } else if (it.kind === "giver") {
+          const def = QUEST_BY_ID[it.quest];
+          out.push({ text: `${def.giver}, ${def.who}`, color: def.color });
+          const status = g.questStatus(it.quest);
+          out.push({
+            text:
+              status === "offer"
+                ? "Wants to talk to you. (Walk into them.)"
+                : status === "active"
+                  ? g.questTask(it.quest)
+                  : "Waiting for you. (Walk into them.)",
+            color: status === "active" ? C.gray : C.yellow,
+          });
         } else
           out.push({ text: `${ITEMS[it.id].name} (walk over it to pocket it)`, color: C.lime });
       }

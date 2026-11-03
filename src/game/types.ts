@@ -125,13 +125,24 @@ export interface Player extends Fighter {
   kos: number;
   /** Hits in a row on one foe, for combo finishers (enemy id, count, turn of the last hit). */
   combo?: { id: number; n: number; turn: number };
+  /** A knife cut that keeps bleeding: damage a turn and turns left. */
+  bleed?: { dmg: number; turns: number };
   /** Times each worn piece of gear has been tailored (reset when it's replaced). */
   tailored?: Partial<Record<GearSlot, number>>;
   /** Turns since the last health/guts trickle. */
   regenClock: number;
 }
 
-export type AiKind = "brawler" | "quick" | "heavy" | "thrower" | "boss";
+export type AiKind =
+  | "brawler"
+  | "quick"
+  | "heavy"
+  | "thrower"
+  | "boss"
+  | "cutter"
+  | "medic"
+  | "rider"
+  | "guard";
 
 export interface Enemy extends Fighter {
   kind: string;
@@ -162,6 +173,12 @@ export interface Enemy extends Fighter {
   event?: string;
   /** Your partner (a PARTNERS id): fights on your side. */
   ally?: string;
+  /** The side quest this named fighter belongs to. */
+  quest?: string;
+  /** Which way a guard is facing (they block punches from the front). */
+  facing?: Dir;
+  /** Something extra about this one (data/enemies.ts TRAITS). */
+  trait?: string;
 }
 
 export type GroundItem =
@@ -169,7 +186,9 @@ export type GroundItem =
   | { kind: "object"; x: number; y: number; id: string }
   | { kind: "item"; x: number; y: number; id: string }
   /** A bystander being shaken down (index into BYSTANDERS). */
-  | { kind: "npc"; x: number; y: number; who: number };
+  | { kind: "npc"; x: number; y: number; who: number }
+  /** Someone with a side quest for you (data/quests.ts). */
+  | { kind: "giver"; x: number; y: number; quest: string };
 
 export interface Exit {
   x: number;
@@ -221,7 +240,11 @@ export type GameEvent =
   | { type: "win" }
   /** A heavy hit: the screen shakes a little (power 1-3). */
   | { type: "impact"; power: number }
-  | { type: "bout"; result: "won" | "lost" };
+  | { type: "bout"; result: "won" | "lost" }
+  /** You walked into someone with a side quest. */
+  | { type: "talk"; quest: string }
+  /** A boss spotted you for the first time: play their scene. */
+  | { type: "scene"; boss: string };
 
 export type SoundId =
   | "punch"

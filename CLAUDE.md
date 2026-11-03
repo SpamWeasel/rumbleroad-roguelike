@@ -85,6 +85,18 @@ Electron setup is copied from Hollowdeep.
   (`ShopDef.tickets` prices; `priceOf` returns tickets, `buy` spends them and sets
   `flags.won_<item>`). `ItemDef.fortune` = random-stat buff (`FORTUNES`). Most Lantern Row
   stalls have `hours: "night"`.
+- **Gang types** (0.8): ranks `cutter` (sets `player.bleed`, ticked in `passTurn`, healed by any
+  heal), `medic` (`medicTurn`), `rider` (charge in `gangTurn`) and `guard` (`facing`; `strike`
+  cuts punches from the front to 25%). `pickRank` adds them from depth 2-4. `toughen` rolls a
+  `trait` (`TRAITS`: tough/quick/loaded/loud) for regular spawns only.
+- **Side quests** (0.8, `data/quests.ts`): `s.quests[id] = {step, progress, done}`. Givers are
+  `giver` ground items placed by `placeGivers` beside their door; walking into one emits a
+  `talk` event (`TalkScreen`). Steps: beat (`spawnQuestFoes`, foe tagged `quest`), kos
+  (`questProgress`), deliver (`deliver`), bout (`endBout`), fetch (`handInQuest`), check
+  (end of `endAction`). `claimQuest` pays out; `menu` rewards set `flags.menu_<item>` and
+  `stockOf` adds `ShopDef.secret` dishes. The bot and `travel` step around givers. Bosses emit
+  a `scene` event once (`flags.met_<boss>`, `BOSS_SCENES`); `epilogue(g)` writes the ending.
+  Save version 8 (0.7 saves upgrade).
 - **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
   picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
@@ -116,6 +128,9 @@ Electron setup is copied from Hollowdeep.
   Hard ~11,000 / ~8. The bot often takes a district by accident. `balance.mts ... turf` makes
   it hunt every gang member to take turf: slower (Normal ~10,200, Hard ~13,100) but it holds
   1-4 districts. Turf is a side goal, not a shortcut.
+- 0.8 with the new gang types: Normal ~10,900 / ~3.5 KOs with partners, ~12,100 solo; Easy
+  ~7,900 / ~1; Hard ~10,700 / ~7 (Hard's median landed under Normal's on 6 seeds - noise, but
+  watch it). All win. The bot kicks guards and never takes side quests.
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -126,7 +141,7 @@ Electron setup is copied from Hollowdeep.
 - The browser pane's screenshots can go stale; trust `pnpm smoke` screenshots for visuals.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
 - `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, partner,
-  sheet, street, night, bus, kennel, ashgate, tailor, pawn, citymap, carnival, nightmarket, help, achievements, ending, arena,
+  sheet, street, night, bus, kennel, ashgate, tailor, pawn, citymap, carnival, nightmarket, talk, questlog, scene, help, achievements, ending, arena,
   bout and saves (backup
   recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.

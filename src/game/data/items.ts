@@ -204,6 +204,15 @@ const items: ItemDef[] = [
   { id: "gorilla", name: "Giant Stuffed Gorilla", kind: "gear", slot: "charm", price: 240, stats: { strength: 4, defense: 4, guts: 2 }, flavor: "You carry it everywhere. It intimidates people." },
   { id: "ringmaster", name: "Ringmaster's Jacket", kind: "gear", slot: "body", price: 500, stats: { defense: 10, guts: 4, agility: 2 }, flavor: "Red coat, gold buttons. The crowd loves it." },
 
+  // ---- Quest rewards: secret menu dishes and gifts ----
+  { id: "grandmaloaf", name: "Grandma's Secret Meatloaf", kind: "food", price: 24, heal: 30, stats: { strength: 2, defense: 1, stamina: 5 }, upTo: 40, flavor: "The real recipe. You can taste the fifty years." },
+  { id: "captainplatter", name: "Captain's Platter", kind: "food", price: 45, heal: 50, stats: { punch: 1, kick: 1, defense: 1, stamina: 6 }, upTo: 60, flavor: "Everything Pete caught today, piled on a plank." },
+  { id: "maesecret", name: "Mae's Secret Blend", kind: "food", price: 60, heal: 30, gutsUp: "full", stats: { guts: 2, defense: 2, agility: 1 }, upTo: 99, flavor: "Forty years of practice in one chipped cup." },
+  { id: "wholehog", name: "The Whole Hog", kind: "food", price: 90, heal: "full", stats: { punch: 2, strength: 3, defense: 1, stamina: 10 }, upTo: 80, flavor: "Big Mike brings it out on a door." },
+  { id: "bouillabaisse", name: "Margot's Bouillabaisse", kind: "food", price: 120, heal: "full", stats: { punch: 2, kick: 2, defense: 2, guts: 2, stamina: 8 }, upTo: 99, flavor: "Her grandmother's recipe. Saffron, fennel, and patience." },
+  { id: "coachgloves", name: "Brannigan's Old Gloves", kind: "gear", slot: "hands", price: 150, stats: { punch: 5, guts: 2 }, flavor: "Cracked leather that's seen a hundred fights." },
+  { id: "jinxvisor", name: "Jinx's Lucky Visor", kind: "gear", slot: "charm", price: 420, stats: { agility: 3, kick: 3, guts: 3 }, flavor: "Worn backwards, obviously." },
+
   // ---- Street vendors ----
   { id: "hotdog", name: "Hot Dog", kind: "food", price: 4, heal: 8, stats: { strength: 1 }, upTo: 35, takeout: true, flavor: "Mustard, onions, mystery meat." },
   { id: "tacos", name: "Street Tacos", kind: "food", price: 6, heal: 12, stats: { kick: 1 }, upTo: 35, flavor: "Three for six. A steal." },

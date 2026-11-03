@@ -1,7 +1,7 @@
 {
   "name": "rumblerow",
   "productName": "RumbleRow",
-  "version": "0.7.0",
+  "version": "0.8.0",
   "description": "An ASCII street-brawling roguelike with lots of shops.",
   "private": true,
   "main": "./out/main/index.js",

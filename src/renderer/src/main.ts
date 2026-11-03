@@ -9,6 +9,7 @@ import { CarnivalScreen } from "./screens/carnival";
 import { CharacterScreen } from "./screens/character";
 import { CityMapScreen } from "./screens/citymap";
 import { AchievementsScreen, EndScreen, HelpScreen, startGame, TitleScreen } from "./screens/menus";
+import { QuestLogScreen, SceneScreen, TalkScreen } from "./screens/quests";
 import { ShopScreen } from "./screens/shop";
 import { loadSettings } from "./settings";
 import { listSlots, readSlot, writeSlot } from "./storage";
@@ -118,6 +119,9 @@ async function smoke(app: App, scene: string): Promise<void> {
       if (scene === "ending") {
         const g = app.game as Game;
         g.s.over = "won";
+        g.s.turf.alleys = { sweeps: 3, held: true, raid: null, swept: 0 };
+        g.s.quests.rosa_recipe = { step: 1, progress: 0, done: true };
+        g.s.quests.pete_boat = { step: 2, progress: 0, done: true };
         app.push(new EndScreen(app, "won"));
         // New Game+ must start cleanly from a won game.
         const plus = Game.newGamePlus(g, 99);
@@ -173,6 +177,33 @@ async function smoke(app: App, scene: string): Promise<void> {
         inside.enterArea("lantern", "v");
         if (!g.shopOpen("skewer")) errors.push("night market closed at night");
         play.flush();
+      }
+      if (scene === "talk") {
+        // Rosa asks for a hand.
+        const g = app.game as Game;
+        if (!g.area.items.some((i) => i.kind === "giver")) errors.push("no quest-givers in Maple");
+        app.push(new TalkScreen(app, "rosa_recipe"));
+      }
+      if (scene === "questlog") {
+        // A few quests on the go, one done.
+        const g = app.game as Game;
+        g.s.visits.harbor = 1;
+        g.s.visits.neon = 1;
+        g.acceptQuest("rosa_recipe");
+        g.s.quests.rosa_recipe = { step: 1, progress: 0, done: true };
+        g.acceptQuest("coach_comeback");
+        g.s.quests.coach_comeback.progress = 9;
+        g.acceptQuest("pete_boat");
+        g.s.quests.pete_boat.step = 1;
+        g.events.length = 0;
+        app.push(new QuestLogScreen(app));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown" }));
+      }
+      if (scene === "scene") {
+        // Gnash's scene, all the way through.
+        app.push(new SceneScreen(app, "gnash"));
+        for (let i = 0; i < 3; i++)
+          window.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter" }));
       }
       if (scene === "citymap") {
         // Halfway through the city with some turf, one block under attack.

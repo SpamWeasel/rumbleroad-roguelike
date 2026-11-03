@@ -1,10 +1,11 @@
 import { C, type Color } from "./colors";
 import { BET_ODDS, CLUBS } from "./data/arena";
-import { BOSSES, GANGS, KO_BARKS, SPOT_BARKS } from "./data/enemies";
+import { BOSSES, GANGS, KO_BARKS, SPOT_BARKS, TRAITS, type Trait } from "./data/enemies";
 import { FORTUNES, ITEMS, type ItemDef } from "./data/items";
 import { BOARDS, BYSTANDERS, CLIENTS, type Job, PARCELS, RIVAL, WANTED_NAMES } from "./data/jobs";
 import { OBJECTS } from "./data/objects";
 import { PARTNER_BY_GYM, PARTNER_CUT, PARTNER_GLYPH, PARTNERS } from "./data/partners";
+import { BOSS_SCENES, QUEST_BY_ID, QUESTS, type QuestDef, type QuestStep } from "./data/quests";
 import {
   PAWN_BUYS,
   PAWN_DISCOUNT,
@@ -74,8 +75,9 @@ import {
  * Version 5 added the day/night clock.
  * Version 6 added the Kennel, Ashgate Heights and tailored gear.
  * Version 7 added turf, raids and daily runs.
+ * Version 8 added side quests.
  */
-export const SAVE_VERSION = 7;
+export const SAVE_VERSION = 8;
 /** A turn is a minute. New games start at 8:00; night runs from 21:00 to 5:00. */
 export const DAY_START = 8 * 60;
 export const NIGHT_FROM = 21 * 60;
@@ -86,6 +88,9 @@ export const POCKET_SIZE = 8;
 /** Towns on the bus line, in order; each stop along the way costs BUS_FARE. */
 const BUS_TOWNS = ["maple", "harbor", "neon", "ashgate"];
 const BUS_FARE = 8;
+/** Chance a new gang member has a trait: base plus this much per depth. */
+const TRAIT_CHANCE = 0.05;
+const TRAIT_DEPTH = 0.008;
 /** Carnival games only raise a stat below this. */
 const CARNIVAL_CAP = 50;
 /** A fortune reading's boost to a random stat, and how long it lasts. */
@@ -151,9 +156,12 @@ export interface GameState {
     raids?: number;
     turf?: number;
     dings?: number;
+    quests?: number;
   };
   /** Carnival tickets, spent at the Sunset Pier prize booth. */
   tickets: number;
+  /** Side quests you've taken: the step you're on, progress on it, and whether it's finished. */
+  quests: Record<string, { step: number; progress: number; done: boolean }>;
   /** Districts you've cleared out or hold (see data/turf.ts). */
   turf: Record<string, TurfState>;
   /** The last dawn that paid tribute and rolled for raids (days since the game began). */
@@ -233,6 +241,7 @@ export class Game {
       decodeSeen(snap.seen, this.area.seen);
       reserveEnemyIds(Math.max(0, ...snap.enemies.map((e) => e.id)));
     } else {
+      this.placeGivers();
       for (const e of this.area.enemies) this.toughen(e);
     }
     this.visible = new Uint8Array(this.area.w * this.area.h);
@@ -299,6 +308,7 @@ export class Game {
       turf: {},
       lastDawn: 0,
       tickets: 0,
+      quests: {},
     };
     const game = new Game(state);
     game.placeAtArrival("@");
@@ -390,6 +400,11 @@ export class Game {
       state.turf = {};
       state.lastDawn = dawnsAt(DAY_START + (state.turn ?? 0) + (state.clock ?? 0));
       state.tickets = 0;
+      state.version = 7;
+    }
+    if (state.version === 7) {
+      // 0.7 saves: no side quests yet.
+      state.quests = {};
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -436,6 +451,24 @@ export class Game {
     e.cash = Math.round(e.cash * d.cash * (1 + 0.6 * plus));
     if (plus)
       for (const k of STAT_KEYS) e.stats[k] = Math.round(e.stats[k] * (1 + PLUS_STATS * plus));
+    if (
+      !e.boss &&
+      !e.ally &&
+      !e.event &&
+      !e.job &&
+      !this.s.bout &&
+      e.gang &&
+      this.rng.chance(TRAIT_CHANCE + TRAIT_DEPTH * this.area.depth)
+    ) {
+      const trait = this.rng.pick(Object.keys(TRAITS) as Trait[]);
+      e.trait = trait;
+      e.title = `${TRAITS[trait].label} ${e.title}`;
+      if (trait === "tough") {
+        e.maxHp = Math.round(e.maxHp * 1.6);
+        e.hp = e.maxHp;
+      } else if (trait === "quick") e.stats.agility += Math.round(e.stats.agility * 0.3) + 2;
+      else if (trait === "loaded") e.cash *= 3;
+    }
   }
 
   get player(): Player {
@@ -672,6 +705,7 @@ export class Game {
       const b = BOSSES[d.boss];
       this.log(`${b.name}, ${b.title}: ${b.taunt}`, b.color);
     }
+    this.placeGivers();
     this.populateStreet();
     this.turfNote();
     this.sound("door");
@@ -722,6 +756,8 @@ export class Game {
       this.passTurn();
     }
     this.checkBout();
+    for (const { def, step } of this.activeSteps())
+      if (step.kind === "check" && step.test(this)) this.advanceQuest(def.id);
   }
 
   private passTurn(): void {
@@ -734,6 +770,13 @@ export class Game {
     for (const b of p.buffs) b.turns--;
     for (const b of p.buffs.filter((b) => b.turns <= 0)) this.log(`${b.name} wears off.`, C.gray);
     p.buffs = p.buffs.filter((b) => b.turns > 0);
+    if (p.bleed && !this.s.over) {
+      p.bleed.turns--;
+      const dmg = p.bleed.dmg;
+      if (p.bleed.turns <= 0) p.bleed = undefined;
+      if (p.hp <= dmg) this.log("You bleed out on the pavement.", C.red);
+      this.damage(p, dmg);
+    }
     p.regenClock++;
     if (p.regenClock % 6 === 0) p.hp = Math.min(this.maxHp(), p.hp + 1);
     if (p.regenClock % 5 === 0) p.guts = Math.min(this.maxGuts(), p.guts + 1);
@@ -817,6 +860,11 @@ export class Game {
       this.pickUpLoose();
       this.endAction(COST.move);
       return true;
+    }
+    const giver = this.area.items.find((i) => i.kind === "giver" && i.x === nx && i.y === ny);
+    if (giver?.kind === "giver") {
+      this.events.push({ type: "talk", quest: giver.quest });
+      return false;
     }
     const tile = this.tileAt(nx, ny);
     if (tile === T.EXIT) {
@@ -1406,6 +1454,10 @@ export class Game {
   private applyConsumable(item: ItemDef): string[] {
     const p = this.s.player;
     const notes: string[] = [];
+    if (item.heal && p.bleed) {
+      p.bleed = undefined;
+      notes.push("the bleeding stops");
+    }
     if (item.heal) {
       const before = p.hp;
       p.hp = item.heal === "full" ? this.maxHp() : Math.min(this.maxHp(), p.hp + item.heal);
@@ -1475,6 +1527,8 @@ export class Game {
       raw?: boolean;
       /** A basic punch or kick that counts toward a combo. */
       combo?: boolean;
+      /** A knife cut: the target keeps bleeding (the player only). */
+      bleed?: boolean;
     },
   ): void {
     const p = this.s.player;
@@ -1557,6 +1611,26 @@ export class Game {
       stun = 0;
       down = 0;
     }
+    // Guards turn punches aside from the front (kicks and hits from the side get through).
+    const foe = target as Enemy;
+    if (
+      byPlayer &&
+      foe.ai === "guard" &&
+      o.sound === "punch" &&
+      foe.facing &&
+      foe.stun === 0 &&
+      foe.down === 0 &&
+      foe.facing[0] * -o.dir[0] + foe.facing[1] * -o.dir[1] > 0
+    ) {
+      dmg *= 0.25;
+      knock = 0;
+      down = 0;
+      p.combo = undefined;
+      finisher = false;
+      this.pop(target.x, target.y - 1, "BLOCK", C.steel);
+      if (this.rng.chance(0.5))
+        this.log(`${foe.name} blocks your punch. Kick, or get around the side!`, C.gray);
+    }
     const amount = Math.max(1, Math.round(dmg));
     target.hp -= amount;
     this.pop(
@@ -1602,6 +1676,11 @@ export class Game {
       );
       const e = target as Enemy;
       if (friendly && !e.awake) this.wake(e, false);
+    }
+    if (o.bleed && target === p && !p.guard && amount > 0 && target.hp > 0) {
+      const was = p.bleed;
+      p.bleed = { dmg: Math.max(1, Math.round(amount * 0.25)), turns: 4 };
+      if (!was) this.log("You're bleeding! (Eat or use a heal to stop it.)", C.red);
     }
     if (target.hp <= 0) {
       if (target === p) this.playerDown();
@@ -1970,6 +2049,7 @@ export class Game {
     this.jobProgress(e, at);
     this.eventProgress(e);
     this.raidProgress(e);
+    this.questProgress(e);
     this.checkSweep();
     this.pop(e.x, e.y, "KO", e.color);
     if (e.cash > 0) this.collectCash(e.cash, at);
@@ -2048,7 +2128,9 @@ export class Game {
     } else if (bark && this.visible[e.y * this.area.w + e.x]) {
       this.log(`${e.name} the ${e.title}: "${this.rng.pick(SPOT_BARKS)}"`, e.color);
     }
-    for (const o of this.area.enemies) if (!o.awake && cheb(o, e) <= 6) o.awake = true;
+    const reach = e.trait === "loud" ? 14 : 6;
+    if (e.trait === "loud" && bark) this.log(`${e.name} hollers for the whole block!`, C.orange);
+    for (const o of this.area.enemies) if (!o.awake && cheb(o, e) <= reach) o.awake = true;
   }
 
   private enemyAct(e: Enemy): void {
@@ -2076,6 +2158,10 @@ export class Game {
       if (seen && dist <= notice) {
         this.wake(e, true);
         if (e.boss) this.log(`${e.name}: ${BOSSES[e.kind].taunt}`, e.color);
+        if (e.boss && !this.s.flags[`met_${e.kind}`] && BOSS_SCENES[e.kind]) {
+          this.s.flags[`met_${e.kind}`] = true;
+          this.events.push({ type: "scene", boss: e.kind });
+        }
       } else if (!e.boss && this.rng.chance(0.3)) {
         this.stepRandom(e);
       }
@@ -2126,6 +2212,39 @@ export class Game {
   private gangTurn(e: Enemy, dist: number): number {
     const p = this.s.player;
     const dir: Dir = [sign(p.x - e.x), sign(p.y - e.y)];
+    if (e.ai === "medic") return this.medicTurn(e, dist);
+    if (e.ai === "guard") e.facing = dir;
+    if (e.ai === "rider" && e.cooldown === 0 && dist >= 3 && dist <= 6) {
+      const straight = p.x === e.x || p.y === e.y || Math.abs(p.x - e.x) === Math.abs(p.y - e.y);
+      if (straight) {
+        e.cooldown = 5;
+        this.log(`${e.name} guns it straight at you!`, e.color);
+        let moved = 0;
+        while (moved < 6 && cheb(e, p) > 1 && this.free(e.x + dir[0], e.y + dir[1])) {
+          e.x += dir[0];
+          e.y += dir[1];
+          moved++;
+        }
+        if (cheb(e, p) === 1)
+          this.strike(e, p, this.enemyKick(e) * 1.3 + e.stats.strength * 0.2, {
+            dir,
+            verb: "run down",
+            sound: "slam",
+            knock: 1,
+            down: 1,
+          });
+        return 120;
+      }
+    }
+    if (e.ai === "cutter" && dist === 1) {
+      this.strike(e, p, this.enemyPunch(e) * 0.9, {
+        dir,
+        verb: "slash",
+        sound: "punch",
+        bleed: true,
+      });
+      return 85;
+    }
     const used = this.useStreetObject(e, dist);
     if (used) return used;
     if (e.ai === "thrower") {
@@ -2187,6 +2306,33 @@ export class Game {
       return 90;
     }
     this.approach(e);
+    return 100;
+  }
+
+  /** Medics patch up hurt friends and keep their distance. */
+  private medicTurn(e: Enemy, dist: number): number {
+    const p = this.s.player;
+    if (e.cooldown === 0) {
+      const hurt = this.area.enemies
+        .filter((o) => o !== e && !o.ally && o.hp < o.maxHp * 0.6 && cheb(o, e) <= 5)
+        .sort((a, b) => a.hp / a.maxHp - b.hp / b.maxHp)[0];
+      if (hurt) {
+        const amount = Math.max(1, Math.round(hurt.maxHp * (hurt.boss ? 0.08 : 0.3)));
+        hurt.hp = Math.min(hurt.maxHp, hurt.hp + amount);
+        e.cooldown = 5;
+        this.pop(hurt.x, hurt.y, `+${amount}`, C.lime);
+        if (this.visible[e.y * this.area.w + e.x])
+          this.log(`${e.name} patches up ${hurt.name}. (+${amount})`, C.orange);
+        return 110;
+      }
+    }
+    if (dist <= 2 && this.stepAway(e)) return 100;
+    if (dist === 1) {
+      const dir: Dir = [sign(p.x - e.x), sign(p.y - e.y)];
+      this.strike(e, p, this.enemyPunch(e) * 0.8, { dir, verb: "slap", sound: "punch" });
+      return 90;
+    }
+    if (dist > 4) this.approach(e);
     return 100;
   }
 
@@ -2758,7 +2904,8 @@ export class Game {
   stockOf(shopId: string): string[] {
     const shop = SHOPS[shopId];
     if (!shop) return [];
-    if (shop.kind !== "pawn") return shop.stock;
+    if (shop.kind !== "pawn")
+      return [...shop.stock, ...(shop.secret ?? []).filter((id) => this.s.flags[`menu_${id}`])];
     const town = Object.values(AREAS).find(
       (a) => a.doors && Object.values(a.doors).includes(shopId),
     );
@@ -2802,7 +2949,8 @@ export class Game {
     const id = p.gear[slot];
     const n = p.tailored?.[slot] ?? 0;
     if (!id || n >= TAILOR_MAX || !ITEMS[id].stats) return null;
-    return Math.max(40, Math.round(ITEMS[id].price * 0.5 * (n + 1)));
+    const half = this.s.flags.tailor_discount ? 0.5 : 1;
+    return Math.max(20, Math.round(ITEMS[id].price * 0.5 * (n + 1) * half));
   }
 
   /** What the gear in a slot would add after one more round of tailoring. */
@@ -3123,6 +3271,7 @@ export class Game {
         const v = dist[y * a.w + x];
         const tile = this.tileAt(x, y);
         if (v < 0 || v >= bestD || tile === T.DOOR || this.enemyAt(x, y)) continue;
+        if (a.items.some((i) => i.kind === "giver" && i.x === x && i.y === y)) continue;
         if (!canStep(this.walk, p.x, p.y, d[0], d[1])) continue;
         best = d;
         bestD = v;
@@ -3238,6 +3387,11 @@ export class Game {
     const p = this.s.player;
     for (const job of this.s.jobs.filter((j) => j.kind === "courier" && j.to === shopId))
       this.completeJob(job, p, `You hand over ${job.parcel}.`);
+    for (const { def, step } of this.activeSteps())
+      if (step.kind === "deliver" && step.shop === shopId) {
+        this.log(`You hand over ${def.giver}'s package.`, C.lime);
+        this.advanceQuest(def.id);
+      }
   }
 
   /** Free squares at least `min` steps from you, furthest first (shuffled within a band). */
@@ -3305,6 +3459,7 @@ export class Game {
       }
       this.log(`Word is ${boss.name} hangs around here. (Bounty: $${job.reward})`, C.yellow);
     }
+    this.spawnQuestFoes();
     if (a.kind === "district") {
       this.spawnRaid();
       this.streetEvent();
@@ -3371,6 +3526,171 @@ export class Game {
       if (!spot) return;
       const amount = Math.round((10 + 7 * a.depth) * this.rng.range(0.8, 1.3));
       a.items.push({ kind: "cash", x: spot.x, y: spot.y, amount });
+    }
+  }
+
+  // -------------------------------------------------------------------------------------------
+  // Side quests
+
+  /** Quests in progress and the step each is on (only steps still to do). */
+  private activeSteps(): { def: QuestDef; step: QuestStep }[] {
+    const out: { def: QuestDef; step: QuestStep }[] = [];
+    for (const [id, q] of Object.entries(this.s.quests ?? {})) {
+      const def = QUEST_BY_ID[id];
+      if (def && !q.done && q.step < def.steps.length) out.push({ def, step: def.steps[q.step] });
+    }
+    return out;
+  }
+
+  /** Where a quest stands, for the dialogue and the quest log. */
+  questStatus(id: string): "offer" | "active" | "handin" | "claim" | "done" {
+    const q = this.s.quests?.[id];
+    const def = QUEST_BY_ID[id];
+    if (!q) return "offer";
+    if (q.done) return "done";
+    if (q.step >= def.steps.length) return "claim";
+    const step = def.steps[q.step];
+    if (step.kind === "fetch" && this.s.player.pockets.includes(step.item)) return "handin";
+    return "active";
+  }
+
+  /** What to do next on a quest, with progress (e.g. "Knock out 15 Rust Rats. (6/15)"). */
+  questTask(id: string): string {
+    const def = QUEST_BY_ID[id];
+    const q = this.s.quests?.[id];
+    if (!def || !q) return "";
+    if (q.done) return "Done.";
+    if (q.step >= def.steps.length) return `Go back to ${def.giver} for your reward.`;
+    const step = def.steps[q.step];
+    return step.kind === "kos" ? `${step.text} (${q.progress}/${step.count})` : step.text;
+  }
+
+  acceptQuest(id: string): { ok: boolean; message: string } {
+    const def = QUEST_BY_ID[id];
+    if (!def || this.s.quests?.[id]) return { ok: false, message: "" };
+    this.s.quests = this.s.quests ?? {};
+    this.s.quests[id] = { step: 0, progress: 0, done: false };
+    this.log(`New quest from ${def.giver}: ${def.name}. ${this.questTask(id)}`, C.yellow);
+    this.sound("levelup");
+    return { ok: true, message: this.questTask(id) };
+  }
+
+  /** Gives the giver the item a fetch step asks for. */
+  handInQuest(id: string): { ok: boolean; message: string } {
+    const def = QUEST_BY_ID[id];
+    const q = this.s.quests?.[id];
+    const step = def && q ? def.steps[q.step] : undefined;
+    if (!def || !q || step?.kind !== "fetch") return { ok: false, message: "" };
+    const idx = this.s.player.pockets.indexOf(step.item);
+    if (idx < 0) return { ok: false, message: `You don't have a ${ITEMS[step.item].name}.` };
+    this.s.player.pockets.splice(idx, 1);
+    this.log(`You give ${def.giver} the ${ITEMS[step.item].name}.`, C.lime);
+    this.advanceQuest(id);
+    return { ok: true, message: this.questTask(id) };
+  }
+
+  claimQuest(id: string): { ok: boolean; message: string } {
+    const def = QUEST_BY_ID[id];
+    if (!def || this.questStatus(id) !== "claim") return { ok: false, message: "" };
+    const q = this.s.quests[id];
+    q.done = true;
+    const p = this.s.player;
+    const r = def.reward;
+    if (r.cash) p.cash += r.cash;
+    if (r.tickets) this.s.tickets = (this.s.tickets ?? 0) + r.tickets;
+    for (const [k, v] of Object.entries(r.stats ?? {}) as [AnyStat, number][]) {
+      p.base[k] = Math.min(k === "stamina" ? STAMINA_CAP : STAT_CAP, p.base[k] + v);
+      if (k === "stamina") p.hp += v;
+    }
+    if (r.item) {
+      const item = ITEMS[r.item];
+      if (item.kind === "gear" && item.slot) this.wear(item);
+      else if (p.pockets.length < POCKET_SIZE) p.pockets.push(r.item);
+    }
+    if (r.menu) this.s.flags[`menu_${r.menu}`] = true;
+    if (r.flag) this.s.flags[r.flag] = true;
+    this.s.tally.quests = (this.s.tally.quests ?? 0) + 1;
+    // They head off once you're square.
+    this.area.items = this.area.items.filter((i) => !(i.kind === "giver" && i.quest === id));
+    this.log(`Quest complete: ${def.name}! You get ${r.text}.`, C.gold);
+    this.sound("levelup");
+    return { ok: true, message: r.text };
+  }
+
+  private advanceQuest(id: string): void {
+    const def = QUEST_BY_ID[id];
+    const q = this.s.quests?.[id];
+    if (!def || !q || q.done) return;
+    q.step++;
+    q.progress = 0;
+    this.log(`${def.name}: ${this.questTask(id)}`, C.yellow);
+    this.sound("coin");
+  }
+
+  /** Quest-givers wait next to their door in their town until their quest is done. */
+  private placeGivers(): void {
+    const a = this.area;
+    for (const def of QUESTS) {
+      if (def.area !== a.id || this.s.quests?.[def.id]?.done) continue;
+      if (a.items.some((i) => i.kind === "giver" && i.quest === def.id)) continue;
+      const shop = AREAS[a.id].doors?.[def.door];
+      const door = [...a.doors].find(([, id]) => id === shop)?.[0];
+      if (door === undefined) continue;
+      const dx = door % a.w;
+      const dy = Math.floor(door / a.w);
+      const side = this.walk(dx, dy + 1) ? 1 : -1;
+      for (const off of [2, -2, 3, -3, 4, -4]) {
+        const x = dx + off;
+        const y = dy + side;
+        if (!this.walk(x, y) || this.tileAt(x, y) === T.DOOR || this.tileAt(x, y) === T.EXIT)
+          continue;
+        if (a.items.some((i) => i.x === x && i.y === y)) continue;
+        if (a.start.x === x && a.start.y === y) continue;
+        a.items.push({ kind: "giver", x, y, quest: def.id });
+        break;
+      }
+    }
+  }
+
+  /** Named fighters from side quests wait in their district. */
+  private spawnQuestFoes(): void {
+    const a = this.area;
+    for (const { def, step } of this.activeSteps()) {
+      if (step.kind !== "beat" || step.area !== a.id) continue;
+      const spot = this.farSpots(16)[0] ?? this.farSpots(8)[0];
+      if (!spot) continue;
+      const foe = makeGangMember(this.rng, step.gang, "lieutenant", a.depth + 1, spot.x, spot.y);
+      foe.name = step.foe;
+      foe.title = `${GANGS[step.gang].titles.lieutenant} (${def.giver}'s quest)`;
+      foe.glyph = "Q";
+      foe.color = C.yellow;
+      foe.maxHp = Math.round(foe.maxHp * 1.6);
+      foe.hp = foe.maxHp;
+      for (const k of STAT_KEYS) foe.stats[k] = Math.round(foe.stats[k] * 1.1);
+      foe.cash += 15 * a.depth;
+      foe.quest = def.id;
+      this.toughen(foe);
+      a.enemies.push(foe);
+      for (const s of this.spotsNear(spot, 2).slice(0, 2)) {
+        const pal = makeGangMember(this.rng, step.gang, "punk", a.depth, s.x, s.y);
+        this.toughen(pal);
+        a.enemies.push(pal);
+      }
+      this.log(`${step.foe} is somewhere around here. (${def.name})`, C.yellow);
+    }
+  }
+
+  /** Knock-outs that count toward side quests. */
+  private questProgress(e: Enemy): void {
+    for (const { def, step } of this.activeSteps()) {
+      if (step.kind === "beat" && e.quest === def.id) {
+        this.log(`${step.foe} is down!`, C.yellow);
+        this.advanceQuest(def.id);
+      } else if (step.kind === "kos" && e.gang === step.gang && !this.s.bout) {
+        const q = this.s.quests[def.id];
+        q.progress++;
+        if (q.progress >= step.count) this.advanceQuest(def.id);
+      }
     }
   }
 
@@ -3598,6 +3918,9 @@ export class Game {
       p.cash += winnings;
       this.log(`You win ${bout.name}! The crowd goes wild. +$${winnings}`, C.gold);
       this.sound("levelup");
+      for (const { def, step } of this.activeSteps())
+        if (step.kind === "bout" && step.club === b.club && step.tier === b.tier)
+          this.advanceQuest(def.id);
       const titleFlag = `title_${club.id}`;
       if (bout.champion && !s.flags[titleFlag]) {
         s.flags[titleFlag] = true;

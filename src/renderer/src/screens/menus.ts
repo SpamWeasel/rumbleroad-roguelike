@@ -1,5 +1,6 @@
 import { C } from "../../../game/colors";
 import { ACHIEVEMENT_BY_ID, ACHIEVEMENTS } from "../../../game/data/achievements";
+import { epilogue } from "../../../game/data/quests";
 import { STYLE_ORDER, STYLES, type StyleId } from "../../../game/data/styles";
 import { dailySeed, Game } from "../../../game/game";
 import { DIFFICULTY, type Difficulty, type Mode } from "../../../game/types";
@@ -25,6 +26,7 @@ import { JobsScreen } from "./board";
 import { CharacterScreen } from "./character";
 import { CityMapScreen } from "./citymap";
 import { PlayScreen } from "./play";
+import { QuestLogScreen } from "./quests";
 
 const LOGO = String.raw`
  ____  _   _ __  __ ____  _     _____   ____   _____        __
@@ -763,6 +765,10 @@ export class HelpScreen implements Screen {
         "Sunset Pier: carnival games below the harbor. Lantern Row: night market off the Strip.",
       ],
       [
+        "QUESTS",
+        `People highlighted in yellow need a hand: walk into them. ${k("quests")}: your quests.`,
+      ],
+      [
         "TURF",
         `Clear a street district out on 3 visits to make it yours. ${k("map")}: the city map.`,
       ],
@@ -780,7 +786,6 @@ export class HelpScreen implements Screen {
       ],
       ["", "Big guys wind up huge swings - the target square flashes red. Step away or guard!"],
       ["GOAL", "Fight east, beat each gang's boss, and take down Duke Varga in Crown Tower."],
-      ["", ""],
       ["SAVING", "The game saves itself as you play, and when you close the window. 3 save slots."],
     ];
     t.box(4, 2, 102, 31, C.yellow, "How to Play");
@@ -805,6 +810,7 @@ export class MenuScreen implements Screen {
       "Resume",
       "Character Sheet",
       "City Map",
+      "Side Quests",
       "Your Jobs",
       "Settings",
       "How to Play",
@@ -830,6 +836,7 @@ export class MenuScreen implements Screen {
       else if (o === "Your Jobs") this.app.push(new JobsScreen(this.app));
       else if (o === "Character Sheet") this.app.push(new CharacterScreen(this.app));
       else if (o === "City Map") this.app.push(new CityMapScreen(this.app));
+      else if (o === "Side Quests") this.app.push(new QuestLogScreen(this.app));
       else if (o === "Settings") this.app.push(new SettingsScreen(this.app));
       else if (o === "How to Play") this.app.push(new HelpScreen(this.app));
       else if (o === "Copy a bug report") {
@@ -971,15 +978,15 @@ export class AchievementsScreen implements Screen {
   draw(t: Term): void {
     t.box(
       10,
-      2,
+      1,
       90,
-      32,
+      35,
       C.gold,
       `Achievements (${earnedCount()} of ${ACHIEVEMENTS.length})`,
       C.gold,
     );
     ACHIEVEMENTS.forEach((a, i) => {
-      const row = 4 + i;
+      const row = 3 + i;
       const when = earned(a.id);
       const unlocks = Object.values(STYLES).some((st) => st.unlock === a.id);
       t.text(13, row, when ? "★" : "·", when ? C.gold : C.dim);
@@ -987,19 +994,20 @@ export class AchievementsScreen implements Screen {
       t.text(44, row, a.desc, when ? C.light : C.dim, undefined, 98);
       if (when) t.text(88, row, when, C.dim);
     });
-    let yy = 5 + ACHIEVEMENTS.length;
-    t.text(13, yy++, "New fighting styles:", C.gray);
+    const yy = 4 + ACHIEVEMENTS.length;
+    let sx = t.text(13, yy, "New styles:", C.gray) + 2;
     for (const st of Object.values(STYLES).filter((x) => x.unlock)) {
       const how = ACHIEVEMENT_BY_ID[st.unlock ?? ""];
       const open = earned(st.unlock ?? "");
-      t.text(
-        15,
-        yy++,
-        `${st.name} - ${open ? "unlocked!" : `earn "${how?.name}"`}`,
-        open ? C.lime : C.amber,
-      );
+      sx =
+        t.text(
+          sx,
+          yy,
+          `${st.name} - ${open ? "unlocked!" : `earn "${how?.name}"`}`,
+          open ? C.lime : C.amber,
+        ) + 3;
     }
-    t.text(13, 32, "Achievements count across all your games.   Esc to close", C.dim);
+    t.text(13, 34, "Achievements count across all your games.   Esc to close", C.dim);
   }
 }
 
@@ -1047,16 +1055,12 @@ export class EndScreen implements Screen {
     );
     const p = g.player;
     const lines = won
-      ? [
-          `${p.name} stands on the roof of Crown Tower as the sun comes up.`,
-          "Duke Varga is beaten and the gangs are scattering.",
-          "Down on Maple Street, Rosa is already flipping celebration pancakes.",
-        ]
+      ? epilogue(g)
       : [
           `${p.name} was knocked out cold in ${g.area.name}.`,
           "The gangs keep the city... for now.",
         ];
-    lines.forEach((l, i) => t.center(7 + i, l, C.light, 14, 82));
+    lines.forEach((l, i) => t.center(6 + i, l, C.light, 14, 82));
     const stats = [
       [
         "Difficulty",

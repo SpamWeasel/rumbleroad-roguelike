@@ -29,6 +29,8 @@ export interface ShopDef {
   glyph?: string;
   /** Open only by day or only at night (default: always). */
   hours?: "day" | "night";
+  /** Secret dishes that only show up once a quest unlocks them (flag menu_<item>). */
+  secret?: string[];
   /** Carnival games: which stat helps, how many tries a game, and the fee. */
   carnival?: { game: "striker" | "gallery"; fee: number };
   /** Prize booths: what each prize costs in tickets. */
@@ -40,7 +42,7 @@ export interface ShopDef {
 // biome-ignore format: shop table.
 const shops: ShopDef[] = [
   // Maple Street
-  { id: "rosa", name: "Rosa's Diner", sign: "ROSA'S", kind: "food", color: C.pink, greet: "Sit anywhere, hon. Coffee's fresh.", stock: ["pancakes", "meatloaf", "chili", "shake", "blueplate", "coffee"] },
+  { id: "rosa", name: "Rosa's Diner", sign: "ROSA'S", kind: "food", color: C.pink, greet: "Sit anywhere, hon. Coffee's fresh.", secret: ["grandmaloaf"], stock: ["pancakes", "meatloaf", "chili", "shake", "blueplate", "coffee"] },
   { id: "kwik", name: "Kwik Corner Store", sign: "KWIK", kind: "store", color: C.lime, greet: "We got snacks. We got drinks. We got... more snacks.", stock: ["gum", "candy", "soda", "jerky", "bandage", "energy"] },
   { id: "lucky", name: "Lucky Dragon Noodles", sign: "NOODLES", kind: "food", color: C.red, greet: "Welcome! Noodles make you strong!", stock: ["ramen", "dumplings", "dragonfire", "greentea", "fortune"] },
   { id: "bolt", name: "Bolt Sporting Goods", sign: "BOLT", kind: "gear", color: C.cyan, greet: "Gear up, champ. Everything's built tough.", stock: ["sneakers", "hightops", "tgloves", "denim", "sweatband"] },
@@ -49,7 +51,7 @@ const shops: ShopDef[] = [
   { id: "home", name: "Your Apartment", sign: "HOME", kind: "service", color: C.light, greet: "Home sweet home. The couch calls to you.", stock: ["nap"] },
 
   // Harbor Market
-  { id: "pete", name: "Salty Pete's Fish Shack", sign: "FISH", kind: "food", color: C.cyan, greet: "Caught this mornin'! Mostly.", stock: ["fishchips", "chowder", "shrimp", "lobster"] },
+  { id: "pete", name: "Salty Pete's Fish Shack", sign: "FISH", kind: "food", color: C.cyan, greet: "Caught this mornin'! Mostly.", secret: ["captainplatter"], stock: ["fishchips", "chowder", "shrimp", "lobster"] },
   { id: "crust", name: "Golden Crust Bakery", sign: "BAKERY", kind: "food", hours: "day", color: C.amber, greet: "Fresh out of the oven, sweetie.", stock: ["croissant", "pretzel", "cinnamon", "cake"] },
   { id: "tide", name: "Tide Sushi Bar", sign: "SUSHI", kind: "food", color: C.teal, greet: "Irasshaimase! Sit at the counter.", stock: ["nigiri", "eel", "toro", "miso"] },
   { id: "anchor", name: "Anchor Outfitters", sign: "OUTFITTER", kind: "gear", color: C.blue, greet: "Built for the docks. Good for a scrap.", stock: ["boots", "runners", "wraps", "leather", "rabbitfoot"] },
@@ -58,7 +60,7 @@ const shops: ShopDef[] = [
   { id: "bath", name: "Seaside Bathhouse", sign: "BATHS", kind: "service", color: C.light, greet: "Towels are on the left. Leave your troubles at the door.", stock: ["soak", "sauna"] },
 
   // Neon Strip
-  { id: "mikes", name: "Big Mike's BBQ", sign: "BBQ", kind: "food", color: C.orange, greet: "Big Mike waves a rib at you. \"Hungry?\"", stock: ["ribs", "brisket", "wings", "pitmaster"] },
+  { id: "mikes", name: "Big Mike's BBQ", sign: "BBQ", kind: "food", color: C.orange, greet: "Big Mike waves a rib at you. \"Hungry?\"", secret: ["wholehog"], stock: ["ribs", "brisket", "wings", "pitmaster"] },
   { id: "juice", name: "Glow Juice Bar", sign: "JUICE", kind: "food", hours: "day", color: C.lime, greet: "Everything's organic! Mostly glowing.", stock: ["greenmachine", "berryblast", "protein", "wheatgrass"] },
   { id: "arcade", name: "Pixel Palace Arcade", sign: "ARCADE", kind: "service", color: C.magenta, greet: "Bleeps, bloops and a sticky carpet.", stock: ["arc_bag", "arc_dance", "arc_fight", "luckycat"] },
   { id: "chrome", name: "Chrome & Leather", sign: "CHROME", kind: "gear", color: C.steel, greet: "Top-shelf fight gear. Top-shelf prices.", stock: ["vest", "weighted", "fightshoes", "belt"] },
@@ -67,10 +69,10 @@ const shops: ShopDef[] = [
 
   // Lighthouse Hill
   { id: "hermit", name: "Master Hu's Hut", sign: "HU", kind: "gym", color: C.yellow, greet: "An old man sips tea. \"You climbed all this way to learn, or to sightsee?\"", stock: ["meditate"], gym: { techniques: ["hundred"], priceMult: 2.5, trainCap: 99 } },
-  { id: "mae", name: "Old Mae's Tea Stand", sign: "TEA", kind: "food", hours: "day", color: C.tan, greet: "Sit, sit. The kettle's always on.", stock: ["mountaintea", "sesame"] },
+  { id: "mae", name: "Old Mae's Tea Stand", sign: "TEA", kind: "food", hours: "day", color: C.tan, greet: "Sit, sit. The kettle's always on.", secret: ["maesecret"], stock: ["mountaintea", "sesame"] },
 
   // Ashgate Heights
-  { id: "margot", name: "Chez Margot", sign: "MARGOT", kind: "food", color: C.pink, greet: "Margot herself seats you. \"The steak is very good tonight. It is always very good.\"", stock: ["onionsoup", "steakfrites", "coqauvin", "souffle", "tasting"] },
+  { id: "margot", name: "Chez Margot", sign: "MARGOT", kind: "food", color: C.pink, greet: "Margot herself seats you. \"The steak is very good tonight. It is always very good.\"", secret: ["bouillabaisse"], stock: ["onionsoup", "steakfrites", "coqauvin", "souffle", "tasting"] },
   { id: "saffron", name: "Saffron House", sign: "SAFFRON", kind: "food", color: C.amber, greet: "Warm spices hit you at the door. \"Table for one? Hungry for two?\"", stock: ["dal", "tandoori", "vindaloo", "naan", "lassi"] },
   { id: "fenwick", name: "Fenwick's Fine Foods", sign: "FENWICK'S", kind: "store", color: C.lime, greet: "A grocer in a bow tie. \"Only the finest, sir or madam.\"", stock: ["espresso", "truffles", "royaljelly", "caviar", "firstaid", "salts"] },
   { id: "tailor", name: "Hartwell & Daughters, Tailors", sign: "TAILOR", kind: "tailor", color: C.tan, greet: "Mrs. Hartwell peers over her glasses. \"Let's see what we can do with that.\"", stock: [] },

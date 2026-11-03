@@ -1,5 +1,6 @@
 import type { Game } from "../game";
 import { TURF_AREAS } from "../world";
+import { QUESTS } from "./quests";
 
 /**
  * Achievements are earned across all your games (kept in the profile beside the saves, not in
@@ -107,6 +108,18 @@ export const ACHIEVEMENTS: Achievement[] = [
     name: "Grand Prize",
     desc: "Win the Ringmaster's Jacket at the Prize Booth.",
     check: (g) => !!g.s.flags.won_ringmaster,
+  },
+  {
+    id: "helper",
+    name: "Pillar of the Community",
+    desc: "Finish 4 side quests.",
+    check: (g) => (g.s.tally.quests ?? 0) >= 4,
+  },
+  {
+    id: "everyone",
+    name: "Everybody Knows Your Name",
+    desc: "Finish every side quest in one game.",
+    check: (g) => Object.values(g.s.quests ?? {}).filter((q) => q.done).length >= QUESTS.length,
   },
   {
     id: "samaritan",

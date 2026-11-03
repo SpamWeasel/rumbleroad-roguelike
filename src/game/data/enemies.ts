@@ -1,7 +1,16 @@
 import { C, type Color } from "../colors";
 import type { AiKind, Stats } from "../types";
 
-export type Rank = "punk" | "scrapper" | "slinger" | "bruiser" | "lieutenant";
+export type Rank =
+  | "punk"
+  | "scrapper"
+  | "slinger"
+  | "bruiser"
+  | "lieutenant"
+  | "cutter"
+  | "medic"
+  | "rider"
+  | "guard";
 
 export interface RankDef {
   glyph: string;
@@ -36,6 +45,34 @@ export const RANKS: Record<Rank, RankDef> = {
     base: { stamina: 26, punch: 7, kick: 5, strength: 9, agility: 3, defense: 6, guts: 6 },
     cash: [6, 12],
   },
+  /** Knife fighter: cuts keep bleeding for a few turns. */
+  cutter: {
+    glyph: "k",
+    ai: "cutter",
+    base: { stamina: 12, punch: 6, kick: 3, strength: 4, agility: 9, defense: 2, guts: 3 },
+    cash: [4, 9],
+  },
+  /** Patches up hurt friends and keeps out of reach. Take them out first. */
+  medic: {
+    glyph: "m",
+    ai: "medic",
+    base: { stamina: 12, punch: 3, kick: 3, strength: 3, agility: 7, defense: 3, guts: 4 },
+    cash: [5, 10],
+  },
+  /** On wheels: charges in from a distance and runs you over. */
+  rider: {
+    glyph: "r",
+    ai: "rider",
+    base: { stamina: 18, punch: 5, kick: 6, strength: 7, agility: 8, defense: 4, guts: 4 },
+    cash: [6, 12],
+  },
+  /** Blocks punches from the front. Kick them, or hit them from the side. */
+  guard: {
+    glyph: "g",
+    ai: "guard",
+    base: { stamina: 22, punch: 6, kick: 4, strength: 6, agility: 4, defense: 7, guts: 5 },
+    cash: [5, 11],
+  },
   lieutenant: {
     glyph: "L",
     ai: "brawler",
@@ -67,6 +104,10 @@ export const GANGS: Record<string, GangDef> = {
       slinger: "Rat Slinger",
       bruiser: "Rat Bruiser",
       lieutenant: "Rat Captain",
+      cutter: "Rat Shiv",
+      medic: "Rat Patcher",
+      rider: "Rat Rider",
+      guard: "Rat Doorman",
     },
     missile: "rock",
   },
@@ -81,6 +122,10 @@ export const GANGS: Record<string, GangDef> = {
       slinger: "Viper Slinger",
       bruiser: "Viper Brute",
       lieutenant: "Viper Lieutenant",
+      cutter: "Viper Fang",
+      medic: "Viper Nurse",
+      rider: "Viper Biker",
+      guard: "Viper Bouncer",
     },
     missile: "bottle",
   },
@@ -95,6 +140,10 @@ export const GANGS: Record<string, GangDef> = {
       slinger: "Dog Slinger",
       bruiser: "Dog Mauler",
       lieutenant: "Dog Alpha",
+      cutter: "Dog Knife",
+      medic: "Dog Medic",
+      rider: "Dog Rider",
+      guard: "Dog Shield",
     },
     missile: "wrench",
   },
@@ -109,6 +158,10 @@ export const GANGS: Record<string, GangDef> = {
       slinger: "Crown Marksman",
       bruiser: "Crown Heavy",
       lieutenant: "Crown Guard",
+      cutter: "Crown Blade",
+      medic: "Crown Medic",
+      rider: "Crown Outrider",
+      guard: "Crown Sentinel",
     },
     missile: "poker chip",
   },
@@ -231,6 +284,15 @@ export const NICKNAMES = [
   "Turbo",
   "Vee",
 ];
+
+/** Rare gang members with something extra (see Game.toughen). */
+export type Trait = "tough" | "quick" | "loaded" | "loud";
+export const TRAITS: Record<Trait, { label: string; desc: string }> = {
+  tough: { label: "Tough", desc: "Takes a lot more punishment." },
+  quick: { label: "Quick", desc: "Faster and harder to hit." },
+  loaded: { label: "Loaded", desc: "Carrying three times the cash." },
+  loud: { label: "Loud", desc: "Hollers for the whole block when they spot you." },
+};
 
 export const SPOT_BARKS = [
   "Hey! You lost?",

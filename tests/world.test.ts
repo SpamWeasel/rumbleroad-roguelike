@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { ACHIEVEMENT_BY_ID } from "../src/game/data/achievements";
 import { ITEMS } from "../src/game/data/items";
+import { epilogue } from "../src/game/data/quests";
 import { SHOPS } from "../src/game/data/shops";
 import { STYLES } from "../src/game/data/styles";
 import { TECHNIQUES } from "../src/game/data/techniques";
@@ -1031,5 +1032,202 @@ describe("0.7 features", () => {
     expect(loaded.s.turf).toEqual({});
     expect(loaded.s.lastDawn).toBe(0);
     expect(loaded.s.tickets).toBe(0);
+  });
+});
+
+describe("0.8 features", () => {
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    knockOut(e: Enemy): void;
+    strike(
+      a: unknown,
+      t: unknown,
+      raw: number,
+      o: {
+        dir: readonly [number, number];
+        verb: string;
+        sound: "punch" | "kick";
+        sure?: boolean;
+        combo?: boolean;
+        bleed?: boolean;
+      },
+    ): void;
+    medicTurn(e: Enemy, dist: number): number;
+    endBout(won: boolean): void;
+    enemyAct(e: Enemy): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+
+  it("the new gang types show up deeper into the city", () => {
+    const kinds = new Set<string>();
+    for (let v = 1; v <= 40; v++)
+      for (const e of buildArea("subway", 81, v, {}).enemies) kinds.add(e.kind);
+    for (const k of ["cutter", "medic", "rider", "guard"]) expect(kinds.has(k), k).toBe(true);
+    // Not in the first alleys, though.
+    const early = new Set<string>();
+    for (let v = 1; v <= 20; v++)
+      for (const e of buildArea("alleys", 81, v, {}).enemies) early.add(e.kind);
+    expect(early.has("rider")).toBe(false);
+  });
+
+  it("guards block punches from the front, but not kicks", () => {
+    const g = Game.create("Flanker", "street", 82);
+    inside(g).enterArea("alleys", "<");
+    g.area.enemies.length = 0;
+    const p = g.player;
+    const make = () => {
+      const e = makeGangMember(new Rng(5), "rats", "guard", 3, p.x + 1, p.y);
+      e.hp = e.maxHp = 999;
+      e.facing = [-1, 0];
+      g.area.enemies.push(e);
+      return e;
+    };
+    const a = make();
+    inside(g).strike(p, a, 40, { dir: [1, 0], verb: "punch", sound: "punch", sure: true });
+    const punched = 999 - a.hp;
+    g.area.enemies.length = 0;
+    const b = make();
+    inside(g).strike(p, b, 40, { dir: [1, 0], verb: "kick", sound: "kick", sure: true });
+    expect(999 - b.hp).toBeGreaterThan(punched * 2);
+  });
+
+  it("knife cuts keep bleeding until you heal", () => {
+    const g = Game.create("Cut", "street", 83);
+    inside(g).enterArea("alleys", "<");
+    g.area.enemies.length = 0;
+    const p = g.player;
+    p.base.stamina = p.hp = 200;
+    const knife = makeGangMember(new Rng(6), "rats", "cutter", 3, p.x + 1, p.y);
+    g.area.enemies.push(knife);
+    inside(g).strike(knife, p, 10, {
+      dir: [-1, 0],
+      verb: "slash",
+      sound: "punch",
+      sure: true,
+      bleed: true,
+    });
+    expect(p.bleed).toBeDefined();
+    g.area.enemies.length = 0;
+    const hp = p.hp;
+    g.wait();
+    expect(p.hp).toBeLessThan(hp);
+    p.pockets = ["bandage"];
+    g.useItem(0);
+    expect(p.bleed).toBeUndefined();
+  });
+
+  it("medics patch up their hurt friends", () => {
+    const g = Game.create("Medic", "street", 84);
+    inside(g).enterArea("alleys", "<");
+    g.area.enemies.length = 0;
+    const p = g.player;
+    const medic = makeGangMember(new Rng(7), "rats", "medic", 3, p.x + 8, p.y);
+    medic.cooldown = 0;
+    const hurt = makeGangMember(new Rng(8), "rats", "punk", 3, p.x + 9, p.y);
+    hurt.hp = 1;
+    g.area.enemies.push(medic, hurt);
+    inside(g).medicTurn(medic, 8);
+    expect(hurt.hp).toBeGreaterThan(1);
+  });
+
+  it("some gang members have traits", () => {
+    const g = Game.create("Traits", "street", 85);
+    const traits = new Set<string>();
+    for (let i = 0; i < 40; i++) {
+      inside(g).enterArea("steelworks", "<");
+      for (const e of g.area.enemies) if (e.trait) traits.add(e.trait);
+    }
+    expect(traits.size).toBeGreaterThanOrEqual(3);
+  });
+
+  it("Rosa's quest: talk, beat Chops, come back, and a secret dish joins the menu", () => {
+    const g = Game.create("Helper", "street", 86);
+    const giver = g.area.items.find((i) => i.kind === "giver" && i.quest === "rosa_recipe");
+    expect(giver).toBeDefined();
+    // Walking into her starts a conversation (and doesn't move you).
+    const p = g.player;
+    p.x = (giver?.x ?? 0) - 1;
+    p.y = giver?.y ?? 0;
+    g.move(1, 0);
+    expect(g.events.some((e) => e.type === "talk" && e.quest === "rosa_recipe")).toBe(true);
+    expect(g.questStatus("rosa_recipe")).toBe("offer");
+    expect(g.acceptQuest("rosa_recipe").ok).toBe(true);
+    inside(g).enterArea("scrapyard", "<");
+    const chops = g.area.enemies.find((e) => e.quest === "rosa_recipe");
+    expect(chops?.name).toBe("Chops");
+    inside(g).knockOut(chops as Enemy);
+    expect(g.questStatus("rosa_recipe")).toBe("claim");
+    expect(g.stockOf("rosa")).not.toContain("grandmaloaf");
+    const cash = p.cash;
+    expect(g.claimQuest("rosa_recipe").ok).toBe(true);
+    expect(p.cash).toBe(cash + 60);
+    expect(g.stockOf("rosa")).toContain("grandmaloaf");
+    expect(g.questStatus("rosa_recipe")).toBe("done");
+    // She's off once it's done.
+    inside(g).enterArea("maple", ">");
+    expect(g.area.items.some((i) => i.kind === "giver" && i.quest === "rosa_recipe")).toBe(false);
+  });
+
+  it("knock-out, fetch, delivery, bout and check steps all work", () => {
+    const g = Game.create("Busy", "street", 87);
+    // Coach: 15 Rust Rats, then Amateur Night.
+    g.acceptQuest("coach_comeback");
+    inside(g).enterArea("alleys", "<");
+    for (let i = 0; i < 15; i++) {
+      const e = makeGangMember(new Rng(i), "rats", "punk", 1, 1, 1);
+      g.area.enemies.push(e);
+      inside(g).knockOut(e);
+    }
+    expect(g.s.quests.coach_comeback.step).toBe(1);
+    g.player.cash = 100;
+    expect(g.startBout("club_maple", 0, 0).ok).toBe(true);
+    inside(g).endBout(true);
+    expect(g.questStatus("coach_comeback")).toBe("claim");
+    g.claimQuest("coach_comeback");
+    expect(g.player.gear.hands).toBe("coachgloves");
+    // Mae: fetch two things.
+    g.acceptQuest("mae_tea");
+    g.player.pockets = ["ginseng"];
+    expect(g.questStatus("mae_tea")).toBe("handin");
+    expect(g.handInQuest("mae_tea").ok).toBe(true);
+    expect(g.player.pockets).toEqual([]);
+    expect(g.questStatus("mae_tea")).toBe("active");
+    // Big Mike: a delivery to Lu's.
+    g.acceptQuest("mike_sauce");
+    (g as unknown as { deliver(s: string): void }).deliver("hotpot");
+    expect(g.s.quests.mike_sauce.step).toBe(1);
+    // Jinx: ring the bell (a check step), noticed after your next action.
+    g.acceptQuest("jinx_arcade");
+    g.s.tally.dings = 1;
+    g.wait();
+    expect(g.s.quests.jinx_arcade.step).toBe(1);
+  });
+
+  it("bosses play a scene the first time they spot you, and the ending reflects the run", () => {
+    const g = Game.create("Hero", "street", 88);
+    inside(g).enterArea("trainyard", "<");
+    const boss = g.area.enemies.find((e) => e.boss) as Enemy;
+    const p = g.player;
+    boss.x = p.x + 3;
+    boss.y = p.y;
+    g.area.enemies = [boss];
+    g.updateView();
+    g.events.length = 0;
+    inside(g).enemyAct(boss);
+    expect(g.events.some((e) => e.type === "scene" && e.boss === "gnash")).toBe(true);
+    expect(g.s.flags.met_gnash).toBe(true);
+    g.s.turf.alleys = { sweeps: 3, held: true, raid: null, swept: 0 };
+    g.s.quests.rosa_recipe = { step: 1, progress: 0, done: true };
+    const lines = epilogue(g);
+    expect(lines.length).toBeGreaterThanOrEqual(3);
+    expect(lines.join(" ")).toContain("neighbor");
+  });
+
+  it("loads saves from 0.7 with no quests yet", () => {
+    const g = Game.create("Old", "street", 89);
+    const old = JSON.parse(g.save());
+    old.version = 7;
+    delete old.quests;
+    expect(Game.load(JSON.stringify(old)).s.quests).toEqual({});
   });
 });

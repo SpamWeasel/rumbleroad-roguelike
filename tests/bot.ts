@@ -271,7 +271,8 @@ export function playGame(
       g.technique(aimed[0].i, target.dir);
       return;
     }
-    if (g.stat("kick") > g.stat("punch") + 2) g.kick(target.dir);
+    // Guards block punches from the front.
+    if (target.e.ai === "guard" || g.stat("kick") > g.stat("punch") + 2) g.kick(target.dir);
     else g.punch(target.dir);
   }
 
@@ -310,6 +311,7 @@ export function playGame(
       const i = y * a.w + x;
       if (isTarget.has(i)) return true;
       const t = g.tileAt(x, y);
+      if (a.items.some((it) => it.kind === "giver" && it.x === x && it.y === y)) return false;
       return walkable(t) && t !== T.DOOR && t !== T.EXIT;
     };
     const dist = distanceMap(a.w, a.h, walk, targets);

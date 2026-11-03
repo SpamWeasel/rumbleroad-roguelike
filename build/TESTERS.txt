@@ -1,8 +1,29 @@
-RUMBLE ROW 0.7 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.8 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.8 - "WORD ON THE STREET"
+----------------------------------
+- Side quests: eight people around the city need a hand (Rosa, Coach Brannigan, Salty Pete,
+  Old Mae, Big Mike, Jinx at the arcade, Mrs. Hartwell and Margot). They stand outside their
+  shops, highlighted in yellow - walk into them to talk. Quests send you after named fighters,
+  gang clean-ups, fight-club bouts, deliveries and errands. Most rewards add a secret dish to
+  that shop's menu for good. Press U for your quest log.
+- New kinds of gang members, more of them deeper into the city:
+    k knife fighters - their cuts keep bleeding until you eat or use a heal
+    m medics - they patch up hurt friends and stay out of reach: take them out first
+    r riders - they charge in from a distance in a straight line
+    g guards - they block punches from the front: kick them, or get around the side
+- Some gang members have a trait: Tough, Quick, Loaded (lots of cash) or Loud (wakes the block).
+  Point the mouse at anyone to see what they do.
+- Each boss has a short scene the first time they spot you.
+- Beating Duke Varga now ends with an epilogue that reflects your run: the turf you held, the
+  people you helped, your partner and your rival.
+- Two new achievements for side quests.
+- Your 0.7 save carries over.
 
 
 NEW IN 0.7 - "TURF WAR"
@@ -132,7 +153,7 @@ Press ? in the game for every control (keys can be changed in Settings). The bas
   G / T ................. pick up / throw crates, trash cans, pipes...
   I ..................... pockets (snacks, bandages, firecrackers)
   R ..................... rest      O ..... your jobs      P ... character sheet
-  N ..................... city map
+  N ..................... city map      U ..... side quests
   ] / [ ................. walk to the next exit / back toward town
   Esc ................... menu      F11 ... fullscreen
 

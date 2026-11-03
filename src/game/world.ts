@@ -568,6 +568,10 @@ function pickRank(rng: Rng, depth: number): Rank {
     ["slinger", depth >= 3 ? 16 : depth === 2 ? 10 : 5],
     ["bruiser", depth >= 3 ? 14 : depth === 2 ? 7 : 3],
     ["lieutenant", depth >= 3 ? 6 + depth : 0],
+    ["cutter", depth >= 2 ? 8 : 0],
+    ["medic", depth >= 3 ? 5 : 0],
+    ["guard", depth >= 3 ? 7 : 0],
+    ["rider", depth >= 4 ? 7 : 0],
   ]);
 }
 
