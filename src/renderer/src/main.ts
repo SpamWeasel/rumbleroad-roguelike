@@ -5,7 +5,9 @@ import { loadProfile } from "./profile";
 import { ArenaScreen } from "./screens/arena";
 import { BoardScreen } from "./screens/board";
 import { BusScreen } from "./screens/bus";
+import { CarnivalScreen } from "./screens/carnival";
 import { CharacterScreen } from "./screens/character";
+import { CityMapScreen } from "./screens/citymap";
 import { AchievementsScreen, EndScreen, HelpScreen, startGame, TitleScreen } from "./screens/menus";
 import { ShopScreen } from "./screens/shop";
 import { loadSettings } from "./settings";
@@ -147,6 +149,53 @@ async function smoke(app: App, scene: string): Promise<void> {
           if (scene === "pawn") app.push(new ShopScreen(app, "pawn"));
         }
         play.flush();
+      }
+      if (scene === "carnival") {
+        // One swing at the High Striker on Sunset Pier.
+        const g = app.game as Game;
+        const inside = g as unknown as { enterArea(id: string, arrive: string): void };
+        inside.enterArea("pier", "^");
+        g.player.cash = 40;
+        g.s.tickets = 57;
+        play.flush();
+        app.push(new CarnivalScreen(app, "striker"));
+        // Start, then swing when the marker swings past the middle (a quarter turn later).
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter" }));
+        await new Promise((r) => setTimeout(r, 600));
+        window.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter" }));
+        if ((g.s.tickets ?? 0) <= 57) errors.push("the High Striker paid no tickets");
+      }
+      if (scene === "nightmarket") {
+        // Lantern Row after dark.
+        const g = app.game as Game;
+        const inside = g as unknown as { enterArea(id: string, arrive: string): void };
+        g.s.clock = 22 * 60 - DAY_START - g.s.turn;
+        inside.enterArea("lantern", "v");
+        if (!g.shopOpen("skewer")) errors.push("night market closed at night");
+        play.flush();
+      }
+      if (scene === "citymap") {
+        // Halfway through the city with some turf, one block under attack.
+        const g = app.game as Game;
+        g.s.daily = "2026-11-03";
+        for (const id of [
+          "maple",
+          "alleys",
+          "scrapyard",
+          "trainyard",
+          "harbor",
+          "docks",
+          "cannery",
+          "pier9",
+          "neon",
+        ])
+          g.s.visits[id] = 2;
+        g.s.flags.gnash = true;
+        g.s.flags.mara = true;
+        g.s.turf.alleys = { sweeps: 3, held: true, raid: null, swept: 0 };
+        g.s.turf.scrapyard = { sweeps: 3, held: true, raid: 99999, swept: 0 };
+        g.s.turf.docks = { sweeps: 1, held: false, raid: null, swept: 0 };
+        app.push(new CityMapScreen(app));
       }
       if (scene === "board") {
         const g = app.game as Game;

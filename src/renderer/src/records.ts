@@ -12,6 +12,8 @@ export interface RunRecord {
   kos: number;
   turns: number;
   date: string;
+  /** A daily run's date. */
+  daily?: string;
 }
 
 export async function loadRecords(): Promise<RunRecord[]> {
@@ -34,6 +36,7 @@ export async function addRecord(game: Game, result: "won" | "dead"): Promise<voi
     kos: game.player.kos,
     turns: game.s.turn,
     date: new Date().toISOString().slice(0, 10),
+    daily: game.s.daily,
   });
   // Wins first (fastest first), then the rest by how many gang members they beat.
   list.sort((a, b) =>

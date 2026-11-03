@@ -28,7 +28,7 @@ export const BOARDS: Record<string, BoardDef> = {
     town: "maple",
     districts: ["alleys", "scrapyard"],
     gangs: ["rats"],
-    deliveries: ["pete", "crust", "apoth", "tide"],
+    deliveries: ["pete", "crust", "apoth", "tide", "piergrill", "sweets"],
     pay: 1,
   },
   board_harbor: {
@@ -36,7 +36,7 @@ export const BOARDS: Record<string, BoardDef> = {
     town: "harbor",
     districts: ["docks", "cannery"],
     gangs: ["vipers"],
-    deliveries: ["rosa", "lucky", "kwik", "mikes", "juice", "mae"],
+    deliveries: ["rosa", "lucky", "kwik", "mikes", "juice", "mae", "boba", "herbs"],
     pay: 2.6,
   },
   board_neon: {

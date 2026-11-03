@@ -20,7 +20,9 @@ import type { Term } from "../term";
 import { ArenaScreen } from "./arena";
 import { BoardScreen, JobsScreen } from "./board";
 import { BusScreen } from "./bus";
+import { CarnivalScreen } from "./carnival";
 import { CharacterScreen } from "./character";
+import { CityMapScreen } from "./citymap";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
 import { ShopScreen } from "./shop";
@@ -138,6 +140,9 @@ export class PlayScreen implements Screen {
         return;
       case "jobs":
         this.app.push(new JobsScreen(this.app));
+        return;
+      case "map":
+        this.app.push(new CityMapScreen(this.app));
         return;
       case "sheet":
         this.app.push(new CharacterScreen(this.app));
@@ -302,7 +307,9 @@ export class PlayScreen implements Screen {
             ? new BoardScreen(this.app, shop)
             : kind === "bus"
               ? new BusScreen(this.app, shop, this)
-              : new ShopScreen(this.app, shop),
+              : kind === "carnival"
+                ? new CarnivalScreen(this.app, shop)
+                : new ShopScreen(this.app, shop),
       );
     }
   }
@@ -877,6 +884,8 @@ export class PlayScreen implements Screen {
         bus: "Bus stop - ride to towns you've reached",
         tailor: "Tailor - improves the gear you wear",
         pawn: "Pawn shop - second-hand gear, buys your stuff",
+        carnival: "Carnival game - win tickets",
+        prizes: "Prize booth - trade tickets for prizes",
       };
       out.push({ text: shop.name, color: shop.color });
       out.push({ text: kinds[shop.kind] ?? "", color: C.gray });

@@ -12,7 +12,9 @@ export type ShopKind =
   | "board"
   | "bus"
   | "tailor"
-  | "pawn";
+  | "pawn"
+  | "carnival"
+  | "prizes";
 
 export interface ShopDef {
   id: string;
@@ -27,6 +29,10 @@ export interface ShopDef {
   glyph?: string;
   /** Open only by day or only at night (default: always). */
   hours?: "day" | "night";
+  /** Carnival games: which stat helps, how many tries a game, and the fee. */
+  carnival?: { game: "striker" | "gallery"; fee: number };
+  /** Prize booths: what each prize costs in tickets. */
+  tickets?: Record<string, number>;
   /** Gyms: techniques taught, and the stat training they offer. */
   gym?: { techniques: string[]; priceMult: number; trainCap: number };
 }
@@ -71,6 +77,21 @@ const shops: ShopDef[] = [
   { id: "summit", name: "Summit Athletic Club", sign: "SUMMIT", kind: "gym", color: C.white, greet: "Polished wood, brass fittings. Coach Lindqvist checks a stopwatch. \"You're late. Warm up.\"", stock: [], gym: { techniques: ["knee", "counter"], priceMult: 2.4, trainCap: 90 } },
   { id: "pawn", name: "Second Chance Pawn", sign: "PAWN", kind: "pawn", color: C.gold, greet: "Glass cases full of other people's stories. \"Buying or selling?\"", stock: [] },
   { id: "grand", name: "The Ashgate Grand", sign: "GRAND", kind: "service", color: C.light, greet: "A doorman in white gloves. \"Welcome to the Grand.\"", stock: ["spa", "suite"] },
+
+  // Sunset Pier
+  { id: "piergrill", name: "Gull's Pier Grill", sign: "GRILL", kind: "food", color: C.orange, greet: "A gull eyes your plate from the railing. \"Don't feed him,\" says the cook.", stock: ["corndog", "clams", "chowderfries", "lemonade"] },
+  { id: "sweets", name: "Sweet Tooth Stand", sign: "SWEETS", kind: "food", color: C.pink, greet: "Spun sugar and hot oil. The smell of summer.", stock: ["funnelcake", "cottoncandy", "caramelapple", "taffy"] },
+  { id: "striker", name: "The High Striker", sign: "STRIKER", kind: "carnival", color: C.yellow, greet: "\"Ring the bell, win the big prize! Step right up!\"", stock: [], carnival: { game: "striker", fee: 5 } },
+  { id: "gallery", name: "Shooting Gallery", sign: "GALLERY", kind: "carnival", color: C.lime, greet: "Tin ducks bob along the back wall. \"Three shots a game!\"", stock: [], carnival: { game: "gallery", fee: 6 } },
+  { id: "prizes", name: "Prize Booth", sign: "PRIZES", kind: "prizes", color: C.magenta, greet: "Stuffed animals hang from every inch of the ceiling. \"Got tickets?\"", stock: ["candy", "firecracker", "energy", "kewpie", "gorilla", "ringmaster"], tickets: { candy: 8, firecracker: 25, energy: 40, kewpie: 80, gorilla: 220, ringmaster: 500 } },
+
+  // Lantern Row (night market): most stalls open only after dark
+  { id: "skewer", name: "Skewer Stall", sign: "SKEWERS", kind: "food", hours: "night", color: C.red, greet: "Smoke rolls off the grill. \"Five sticks, extra chili?\"", stock: ["skewers", "takoyaki", "scallion"] },
+  { id: "hotpot", name: "Lu's Hot Pot", sign: "HOT POT", kind: "food", hours: "night", color: C.orange, greet: "Steam fogs the windows. Lu points at a free stool.", stock: ["hotpot", "dumplingsoup", "shavedice"] },
+  { id: "boba", name: "Boba Bros", sign: "BOBA", kind: "food", color: C.purple, greet: "Two brothers, one shaker each. \"Sweetness level?\"", stock: ["boba", "tarotea", "matcha"] },
+  { id: "fortune", name: "Madame Velvet's Fortunes", sign: "FORTUNE", kind: "service", hours: "night", color: C.magenta, greet: "Beads clack. A woman in purple shuffles a worn deck. \"Sit. The cards are waiting.\"", stock: ["fortune_read"] },
+  { id: "charms", name: "Lantern Charms", sign: "CHARMS", kind: "gear", hours: "night", color: C.lime, greet: "Jade, red string, tiny lanterns. \"For luck. And for hitting harder.\"", stock: ["papercharm", "redstring", "jadetiger"] },
+  { id: "herbs", name: "Old Wen's Herbs", sign: "HERBS", kind: "store", color: C.green, greet: "Drawers to the ceiling. Old Wen doesn't look up. \"What hurts?\"", stock: ["dragonwell", "fivespirits", "ginseng", "herbal"] },
 
   // Street vendors and machines found around town
   { id: "v_vend", name: "Vending Machine", sign: "", kind: "vendor", color: C.cyan, glyph: "V", greet: "It hums. A sticker says 'NO REFUNDS'.", stock: ["soda", "candy", "energy", "gum"] },

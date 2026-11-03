@@ -1,7 +1,7 @@
 import { C } from "../../../game/colors";
 import { ACHIEVEMENT_BY_ID, ACHIEVEMENTS } from "../../../game/data/achievements";
 import { STYLE_ORDER, STYLES, type StyleId } from "../../../game/data/styles";
-import { Game } from "../../../game/game";
+import { dailySeed, Game } from "../../../game/game";
 import { DIFFICULTY, type Difficulty, type Mode } from "../../../game/types";
 import { SAVE_SLOTS, type SlotInfo } from "../../../shared/bridge";
 import type { App, Screen } from "../app";
@@ -23,6 +23,7 @@ import { appInfo, copyText, deleteSlot, listSlots, readSlot } from "../storage";
 import { COLS, ROWS, Term } from "../term";
 import { JobsScreen } from "./board";
 import { CharacterScreen } from "./character";
+import { CityMapScreen } from "./citymap";
 import { PlayScreen } from "./play";
 
 const LOGO = String.raw`
@@ -203,6 +204,8 @@ class CreateScreen implements Screen {
   private slot: number;
   private row = 0;
   private armed = false;
+  /** Today's daily run instead of a random city. */
+  private daily = false;
 
   constructor(
     private app: App,
@@ -222,7 +225,7 @@ class CreateScreen implements Screen {
       return;
     }
     if (e.code === "ArrowUp" || e.code === "ArrowDown") {
-      this.row = (this.row + (e.code === "ArrowUp" ? 4 : 1)) % 5;
+      this.row = (this.row + (e.code === "ArrowUp" ? 5 : 1)) % 6;
       return;
     }
     const step = isLeft(e) ? -1 : isRight(e) ? 1 : e.code === "Space" && this.row > 0 ? 1 : 0;
@@ -235,6 +238,7 @@ class CreateScreen implements Screen {
         const all: Difficulty[] = ["easy", "normal", "hard"];
         this.difficulty = all[(all.indexOf(this.difficulty) + step + 3) % 3];
       } else if (this.row === 3) this.mode = this.mode === "street" ? "permadeath" : "street";
+      else if (this.row === 4) this.daily = !this.daily;
       else this.slot = (this.slot + step + SAVE_SLOTS) % SAVE_SLOTS;
       return;
     }
@@ -245,8 +249,12 @@ class CreateScreen implements Screen {
         this.armed = true;
         return;
       }
-      const seed = (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
+      const today = todayString();
+      const seed = this.daily
+        ? dailySeed(today)
+        : (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
       const game = Game.create(this.name, this.mode, seed, this.difficulty, this.style);
+      if (this.daily) game.s.daily = today;
       void deleteSlot(this.slot).then(() => startGame(this.app, game, this.slot));
       return;
     }
@@ -259,8 +267,8 @@ class CreateScreen implements Screen {
 
   draw(t: Term, now: number): void {
     const x = 22;
-    const y = 3;
-    t.box(x, y, 66, 31, C.orange, "New Fighter");
+    const y = 1;
+    t.box(x, y, 66, 35, C.orange, "New Fighter");
     const head = (row: number, text: string, yy: number) =>
       t.text(x + 3, yy, text, this.row === row ? C.yellow : C.light);
     head(0, "Name your fighter:", y + 2);
@@ -334,12 +342,29 @@ class CreateScreen implements Screen {
       : "A true roguelike. Get knocked out on the street and it's over for good - your save is deleted. (Losing in a fight club ring is safe.)";
     Term.wrap(desc, 58).forEach((l, i) => t.text(x + 5, y + 20 + i, l, C.gray));
 
-    head(4, "Save slot:", y + 23);
+    head(4, "City:", y + 23);
+    t.text(x + 5, y + 24, this.daily ? "  Random" : "► Random", this.daily ? C.gray : C.lime);
+    t.text(
+      x + 19,
+      y + 24,
+      this.daily ? `► Daily run (${todayString()})` : `  Daily run (${todayString()})`,
+      this.daily ? C.yellow : C.gray,
+    );
+    t.text(
+      x + 5,
+      y + 25,
+      this.daily
+        ? "Today's city is the same for everyone. Compare runs with friends!"
+        : "A brand-new city every game.",
+      C.gray,
+    );
+
+    head(5, "Save slot:", y + 27);
     for (let n = 0; n < SAVE_SLOTS; n++) {
       const sel = n === this.slot;
       t.text(
         x + 5 + n * 14,
-        y + 24,
+        y + 28,
         sel ? `► Slot ${n + 1}` : `  Slot ${n + 1}`,
         sel ? C.cyan : C.gray,
       );
@@ -347,15 +372,15 @@ class CreateScreen implements Screen {
     const taken = this.taken();
     t.text(
       x + 5,
-      y + 25,
+      y + 29,
       taken ? `In use: ${taken.title}` : "Empty",
       taken ? C.orange : C.dim,
       undefined,
       x + 64,
     );
     if (taken && this.armed)
-      t.text(x + 5, y + 26, "Press Enter again to replace that saved game.", C.red);
-    t.text(x + 3, y + 28, "Type a name  ↑↓ choose row  ←→ change  Enter start  Esc back", C.dim);
+      t.text(x + 5, y + 30, "Press Enter again to replace that saved game.", C.red);
+    t.text(x + 3, y + 32, "Type a name  ↑↓ choose row  ←→ change  Enter start  Esc back", C.dim);
   }
 
   animating(): boolean {
@@ -649,7 +674,7 @@ class RecordsScreen implements Screen {
           r.name,
           r.result === "won" ? "WON" : "KO'd",
           r.difficulty,
-          r.mode,
+          r.daily ? `Daily/${r.mode === "Permadeath" ? "Perma" : "Street"}` : r.mode,
           r.area,
           String(r.kos),
           String(r.turns),
@@ -734,6 +759,14 @@ export class HelpScreen implements Screen {
         `Bus stops (a blue B) link towns you've reached. ${k("travelOn")} / ${k("travelBack")} walk to the next / previous exit.`,
       ],
       [
+        "PLACES",
+        "Sunset Pier: carnival games below the harbor. Lantern Row: night market off the Strip.",
+      ],
+      [
+        "TURF",
+        `Clear a street district out on 3 visits to make it yours. ${k("map")}: the city map.`,
+      ],
+      [
         "NIGHT",
         "From 21:00 to 5:00 the streets are darker, crews bigger and richer, some shops shut.",
       ],
@@ -771,6 +804,7 @@ export class MenuScreen implements Screen {
     return [
       "Resume",
       "Character Sheet",
+      "City Map",
       "Your Jobs",
       "Settings",
       "How to Play",
@@ -795,6 +829,7 @@ export class MenuScreen implements Screen {
       if (o === "Resume") this.app.pop();
       else if (o === "Your Jobs") this.app.push(new JobsScreen(this.app));
       else if (o === "Character Sheet") this.app.push(new CharacterScreen(this.app));
+      else if (o === "City Map") this.app.push(new CityMapScreen(this.app));
       else if (o === "Settings") this.app.push(new SettingsScreen(this.app));
       else if (o === "How to Play") this.app.push(new HelpScreen(this.app));
       else if (o === "Copy a bug report") {
@@ -920,6 +955,12 @@ export class NoticeScreen implements Screen {
 }
 
 /** Every achievement, earned or not, across all your games. */
+/** Today's date (local time) as YYYY-MM-DD, for daily runs. */
+function todayString(): string {
+  const d = new Date();
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-${String(d.getDate()).padStart(2, "0")}`;
+}
+
 export class AchievementsScreen implements Screen {
   constructor(private app: App) {}
 

@@ -5,15 +5,18 @@ import {
   ASHGATE,
   HARBOR,
   KENNEL,
+  LANTERN,
   LIGHTHOUSE,
   LOBBY,
   MAPLE,
   NEON,
+  PIER,
   PIER9,
   ROOF,
   TRAINYARD,
 } from "./data/maps";
 import { OBJECT_BY_LETTER } from "./data/objects";
+import { TURF_QUIET } from "./data/turf";
 import { type GenKind, generateDistrict, type StreetTheme } from "./generate";
 import { distanceMap } from "./grid";
 import { hashSeed, Rng } from "./rng";
@@ -127,6 +130,7 @@ def({
     "<": { to: "trainyard", arrive: ">" },
     ">": { to: "docks", arrive: "<" },
     "^": { to: "lighthouse", arrive: "v" },
+    v: { to: "pier", arrive: "^" },
   },
   intro: "Harbor Market. Gulls, salt air, and food stalls as far as you can smell.",
 });
@@ -139,6 +143,16 @@ def({
   doors: { "1": "hermit", "2": "mae" },
   exits: { v: { to: "harbor", arrive: "^" } },
   intro: "Lighthouse Hill. Quiet, windy. They say an old master lives up here.",
+});
+def({
+  id: "pier",
+  name: "Sunset Pier",
+  kind: "town",
+  depth: 3,
+  map: PIER,
+  doors: { "1": "piergrill", "2": "sweets", "3": "striker", "4": "gallery", "5": "prizes" },
+  exits: { "^": { to: "harbor", arrive: "v" } },
+  intro: "Sunset Pier. Carnival music, fried dough, and a Ferris wheel creaking in the sea breeze.",
 });
 def({
   id: "docks",
@@ -194,8 +208,30 @@ def({
     "9": "board_neon",
     H: "bus_neon",
   },
-  exits: { "<": { to: "pier9", arrive: ">" }, ">": { to: "park", arrive: "<" } },
+  exits: {
+    "<": { to: "pier9", arrive: ">" },
+    ">": { to: "park", arrive: "<" },
+    "^": { to: "lantern", arrive: "v" },
+  },
   intro: "The Neon Strip. Buzzing signs, all-night food, and Crown Tower looming in the distance.",
+});
+def({
+  id: "lantern",
+  name: "Lantern Row",
+  kind: "town",
+  depth: 6,
+  map: LANTERN,
+  doors: {
+    "1": "skewer",
+    "2": "hotpot",
+    "3": "boba",
+    "4": "fortune",
+    "5": "charms",
+    "6": "herbs",
+  },
+  exits: { v: { to: "neon", arrive: "^" } },
+  intro:
+    "Lantern Row. Red lanterns, sizzling grills, and stalls that only really wake up after dark.",
 });
 def({
   id: "park",
@@ -309,6 +345,11 @@ for (const [id, name] of [
 }
 
 export const START_AREA = "maple";
+
+/** Random street districts with a gang: the ones that can become your turf. */
+export const TURF_AREAS = Object.values(AREAS)
+  .filter((d) => d.kind === "district" && d.gang)
+  .map((d) => d.id);
 
 // ---------------------------------------------------------------------------------------------
 
@@ -544,6 +585,8 @@ export function buildArea(
   flags: Record<string, boolean>,
   /** At night random districts get extra gang members. */
   night = false,
+  /** A district the player holds as turf has fewer gang groups. */
+  quiet = false,
 ): Area {
   const d = AREAS[id];
   if (!d) throw new Error(`Unknown area ${id}`);
@@ -609,11 +652,17 @@ export function buildArea(
     start: startAt,
   };
 
-  if (!d.map && d.gang) spawnDistrictGangs(area, rng, d, night);
+  if (!d.map && d.gang) spawnDistrictGangs(area, rng, d, night, quiet);
   return area;
 }
 
-function spawnDistrictGangs(area: Area, rng: Rng, d: AreaDef, night: boolean): void {
+function spawnDistrictGangs(
+  area: Area,
+  rng: Rng,
+  d: AreaDef,
+  night: boolean,
+  quiet: boolean,
+): void {
   const walk = (x: number, y: number) => walkable(area.tiles[y * area.w + x]);
   const fromExits = distanceMap(area.w, area.h, walk, area.exits);
   const floor: number[] = [];
@@ -621,7 +670,8 @@ function spawnDistrictGangs(area: Area, rng: Rng, d: AreaDef, night: boolean): v
     const t = area.tiles[i];
     if (walkable(t) && t !== T.DOOR && t !== T.EXIT && fromExits[i] > 12) floor.push(i);
   }
-  const groups = 3 + Math.floor(d.depth / 2) + rng.int(0, 2) + (night ? NIGHT_GROUPS : 0);
+  let groups = 3 + Math.floor(d.depth / 2) + rng.int(0, 2) + (night ? NIGHT_GROUPS : 0);
+  if (quiet) groups = Math.max(1, groups - TURF_QUIET);
   const taken = new Set<number>();
   for (let g = 0; g < groups && floor.length > 0; g++) {
     const center = rng.pick(floor);

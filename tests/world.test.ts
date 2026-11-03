@@ -4,7 +4,7 @@ import { ITEMS } from "../src/game/data/items";
 import { SHOPS } from "../src/game/data/shops";
 import { STYLES } from "../src/game/data/styles";
 import { TECHNIQUES } from "../src/game/data/techniques";
-import { Game } from "../src/game/game";
+import { dailySeed, Game } from "../src/game/game";
 import { generateDistrict } from "../src/game/generate";
 import { distanceMap } from "../src/game/grid";
 import { Rng } from "../src/game/rng";
@@ -874,5 +874,162 @@ describe("0.6 features", () => {
     expect(Game.load(JSON.stringify(old)).s.flags.kilo).toBeUndefined();
     old.visits.steelworks = 2;
     expect(Game.load(JSON.stringify(old)).s.flags.kilo).toBe(true);
+  });
+});
+
+describe("0.7 features", () => {
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    knockOut(e: Enemy): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+  /** Knocks out every gang member in the area. */
+  const clearOut = (g: Game) => {
+    for (const e of [...g.area.enemies]) if (!e.ally && e.gang) inside(g).knockOut(e);
+  };
+  /** Moves the clock forward to the next dawn (5:00) and takes a turn there. */
+  const toDawn = (g: Game) => {
+    const minute = g.clock().minute;
+    g.s.clock += (5 * 60 - minute + 1440) % 1440 || 1440;
+    g.s.clock -= 1;
+    g.wait();
+  };
+
+  it("clearing a district out on three visits makes it your turf", () => {
+    const g = Game.create("Captain", "street", 71);
+    for (let visit = 1; visit <= 3; visit++) {
+      inside(g).enterArea("alleys", "<");
+      clearOut(g);
+      // A second clear in the same visit doesn't count.
+      clearOut(g);
+      expect(g.turfOf("alleys").sweeps).toBe(visit);
+    }
+    expect(g.turfOf("alleys").held).toBe(true);
+    expect(ACHIEVEMENT_BY_ID.turf.check(g)).toBe(false);
+    // Fewer crews on your turf.
+    const crews = (held: boolean) => buildArea("alleys", 71, 9, {}, false, held).enemies.length;
+    expect(crews(true)).toBeLessThan(crews(false));
+    // Street carts are cheaper there.
+    inside(g).enterArea("alleys", "<");
+    const turfPrice = g.priceOf("v_vend", "energy");
+    g.s.turf.alleys.held = false;
+    expect(turfPrice).toBeLessThan(g.priceOf("v_vend", "energy"));
+    g.s.turf.alleys.held = true;
+    expect(Game.load(g.save()).turfOf("alleys").held).toBe(true);
+  });
+
+  it("your turf pays every dawn, and raids must be beaten by the next one", () => {
+    const g = Game.create("Boss", "street", 72);
+    for (const id of ["alleys", "scrapyard", "docks"])
+      g.s.turf[id] = { sweeps: 3, held: true, raid: null, swept: 0 };
+    expect(ACHIEVEMENT_BY_ID.turf.check(g)).toBe(true);
+    const cash = g.player.cash;
+    toDawn(g);
+    // 3 districts: 30 + 25 x depth each (depths 1, 2, 4).
+    expect(g.player.cash).toBe(cash + 90 + 25 * 7);
+    // Force a raid, then let a whole day go by.
+    g.s.turf.alleys.raid = g.clock().day * 1440 + 23 * 60;
+    for (const t of Object.values(g.s.turf)) t.raid = t === g.s.turf.alleys ? t.raid : null;
+    const deadline = g.s.turf.alleys.raid as number;
+    g.s.clock += deadline - (8 * 60 + g.s.turn + g.s.clock) + 10;
+    toDawn(g);
+    expect(g.s.turf.alleys.held).toBe(false);
+    expect(g.s.turf.alleys.sweeps).toBe(1);
+  });
+
+  it("raiders spawn on your raided turf, and beating them saves it", () => {
+    const g = Game.create("Watch", "street", 73);
+    g.s.turf.scrapyard = { sweeps: 3, held: true, raid: 99999, swept: 0 };
+    inside(g).enterArea("scrapyard", "<");
+    const raiders = g.area.enemies.filter((e) => e.event === "raid");
+    expect(raiders.length).toBeGreaterThanOrEqual(3);
+    const cash = g.player.cash;
+    for (const e of raiders) inside(g).knockOut(e);
+    expect(g.s.turf.scrapyard.raid).toBeNull();
+    expect(g.s.turf.scrapyard.held).toBe(true);
+    expect(g.s.tally.raids).toBe(1);
+    expect(g.player.cash).toBeGreaterThan(cash);
+  });
+
+  it("daily runs build the same city for everyone on a date", () => {
+    expect(dailySeed("2026-11-03")).toBe(dailySeed("2026-11-03"));
+    expect(dailySeed("2026-11-03")).not.toBe(dailySeed("2026-11-04"));
+    const a = Game.create("A", "street", dailySeed("2026-11-03"));
+    const b = Game.create("B", "street", dailySeed("2026-11-03"));
+    expect(buildArea("alleys", a.s.seed, 1, {}).tiles).toEqual(
+      buildArea("alleys", b.s.seed, 1, {}).tiles,
+    );
+    a.s.daily = "2026-11-03";
+    a.s.over = "won";
+    expect(ACHIEVEMENT_BY_ID.daily.check(a)).toBe(true);
+    expect(ACHIEVEMENT_BY_ID.daily.check(b)).toBe(false);
+  });
+
+  it("Sunset Pier hangs off the harbor and Lantern Row off the Neon Strip", () => {
+    expect(AREAS.harbor.exits.v).toEqual({ to: "pier", arrive: "^" });
+    expect(AREAS.pier.exits["^"]).toEqual({ to: "harbor", arrive: "v" });
+    expect(AREAS.neon.exits["^"]).toEqual({ to: "lantern", arrive: "v" });
+    expect(AREAS.lantern.exits.v).toEqual({ to: "neon", arrive: "^" });
+    const g = Game.create("Tourist", "street", 75);
+    inside(g).enterArea("lantern", "v");
+    g.s.clock += 12 * 60 - g.clock().minute;
+    expect(g.shopOpen("skewer")).toBe(false);
+    expect(g.shopOpen("boba")).toBe(true);
+    g.s.clock += 22 * 60 - g.clock().minute;
+    expect(g.shopOpen("skewer")).toBe(true);
+  });
+
+  it("carnival games cost a fee and pay tickets for good timing", () => {
+    const g = Game.create("Carny", "street", 76);
+    g.player.base.strength = 15;
+    g.player.cash = 100;
+    const perfect = g.playCarnival("striker", [1]);
+    expect(perfect.ok).toBe(true);
+    expect(perfect.best).toBe(true);
+    expect(g.player.cash).toBe(95);
+    expect(g.s.tickets).toBe(perfect.tickets);
+    expect(perfect.tickets).toBeGreaterThanOrEqual(25);
+    expect(ACHIEVEMENT_BY_ID.ding.check(g)).toBe(true);
+    const whiff = g.playCarnival("striker", [0]);
+    expect(whiff.best).toBe(false);
+    expect(whiff.tickets).toBeLessThan(perfect.tickets);
+    expect(g.carnivalTries("gallery")).toBe(3);
+    const ducks = g.playCarnival("gallery", [1, 1, 1]);
+    expect(ducks.best).toBe(true);
+    expect(ducks.tickets).toBe(30);
+    expect(g.playCarnival("gallery", [0, 0, 0]).tickets).toBe(0);
+    g.player.cash = 2;
+    expect(g.playCarnival("striker", [1]).ok).toBe(false);
+  });
+
+  it("the prize booth takes tickets, not cash, and fortunes boost a stat", () => {
+    const g = Game.create("Winner", "street", 77);
+    g.player.cash = 1000;
+    g.s.tickets = 100;
+    expect(g.priceOf("prizes", "ringmaster")).toBe(500);
+    expect(g.buy("prizes", "ringmaster").ok).toBe(false);
+    expect(g.buy("prizes", "kewpie").ok).toBe(true);
+    expect(g.s.tickets).toBe(20);
+    expect(g.player.cash).toBe(1000);
+    expect(g.player.gear.charm).toBe("kewpie");
+    g.s.tickets = 500;
+    expect(g.buy("prizes", "ringmaster").ok).toBe(true);
+    expect(ACHIEVEMENT_BY_ID.bigprize.check(g)).toBe(true);
+    // A fortune reading (the stall only opens at night).
+    g.s.clock += 22 * 60 - g.clock().minute;
+    expect(g.buy("fortune", "fortune_read").ok).toBe(true);
+    expect(g.player.buffs.some((b) => b.name === "Fortune Reading")).toBe(true);
+  });
+
+  it("loads saves from 0.6 with no turf or tickets yet", () => {
+    const g = Game.create("Old", "street", 74);
+    const old = JSON.parse(g.save());
+    old.version = 6;
+    delete old.turf;
+    delete old.lastDawn;
+    const loaded = Game.load(JSON.stringify(old));
+    expect(loaded.s.turf).toEqual({});
+    expect(loaded.s.lastDawn).toBe(0);
+    expect(loaded.s.tickets).toBe(0);
   });
 });

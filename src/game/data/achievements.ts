@@ -1,4 +1,5 @@
 import type { Game } from "../game";
+import { TURF_AREAS } from "../world";
 
 /**
  * Achievements are earned across all your games (kept in the profile beside the saves, not in
@@ -13,6 +14,7 @@ export interface Achievement {
 }
 
 const won = (g: Game) => g.s.over === "won";
+const held = (g: Game) => Object.values(g.s.turf ?? {}).filter((t) => t.held).length;
 const titles = (g: Game) => Object.keys(g.s.flags).filter((k) => k.startsWith("title_")).length;
 
 export const ACHIEVEMENTS: Achievement[] = [
@@ -69,6 +71,42 @@ export const ACHIEVEMENTS: Achievement[] = [
     name: "Bespoke",
     desc: "Have a piece of gear tailored as far as it goes.",
     check: (g) => Object.values(g.player.tailored ?? {}).some((n) => (n ?? 0) >= 3),
+  },
+  {
+    id: "turf",
+    name: "Block Captain",
+    desc: "Hold three districts as your turf at once.",
+    check: (g) => held(g) >= 3,
+  },
+  {
+    id: "mayor",
+    name: "Mayor of the Streets",
+    desc: "Hold every street district in the city at once.",
+    check: (g) => held(g) >= TURF_AREAS.length,
+  },
+  {
+    id: "defender",
+    name: "Neighborhood Watch",
+    desc: "Drive off 3 raids on your turf.",
+    check: (g) => (g.s.tally.raids ?? 0) >= 3,
+  },
+  {
+    id: "daily",
+    name: "Daily Grind",
+    desc: "Win a daily run.",
+    check: (g) => won(g) && !!g.s.daily,
+  },
+  {
+    id: "ding",
+    name: "Ding Ding Ding!",
+    desc: "Ring the bell on the High Striker.",
+    check: (g) => (g.s.tally.dings ?? 0) >= 1,
+  },
+  {
+    id: "bigprize",
+    name: "Grand Prize",
+    desc: "Win the Ringmaster's Jacket at the Prize Booth.",
+    check: (g) => !!g.s.flags.won_ringmaster,
   },
   {
     id: "samaritan",

@@ -1,7 +1,7 @@
 import { C, type Color } from "./colors";
 import { BET_ODDS, CLUBS } from "./data/arena";
 import { BOSSES, GANGS, KO_BARKS, SPOT_BARKS } from "./data/enemies";
-import { ITEMS, type ItemDef } from "./data/items";
+import { FORTUNES, ITEMS, type ItemDef } from "./data/items";
 import { BOARDS, BYSTANDERS, CLIENTS, type Job, PARCELS, RIVAL, WANTED_NAMES } from "./data/jobs";
 import { OBJECTS } from "./data/objects";
 import { PARTNER_BY_GYM, PARTNER_CUT, PARTNER_GLYPH, PARTNERS } from "./data/partners";
@@ -16,6 +16,16 @@ import {
 } from "./data/shops";
 import { STYLES, type StyleId } from "./data/styles";
 import { TECHNIQUES } from "./data/techniques";
+import {
+  DAWN,
+  RAID_CHANCE,
+  RAID_LINES,
+  TRIBUTE_BASE,
+  TRIBUTE_DEPTH,
+  TURF_DISCOUNT,
+  TURF_SWEEPS,
+  type TurfState,
+} from "./data/turf";
 import { computeFov, lineOfFire } from "./fov";
 import { canStep, distanceMap } from "./grid";
 import { hashSeed, Rng } from "./rng";
@@ -54,6 +64,7 @@ import {
   newEnemyId,
   reserveEnemyIds,
   START_AREA,
+  TURF_AREAS,
 } from "./world";
 
 /**
@@ -62,8 +73,9 @@ import {
  * Version 4 added partners, New Game+ and running totals.
  * Version 5 added the day/night clock.
  * Version 6 added the Kennel, Ashgate Heights and tailored gear.
+ * Version 7 added turf, raids and daily runs.
  */
-export const SAVE_VERSION = 6;
+export const SAVE_VERSION = 7;
 /** A turn is a minute. New games start at 8:00; night runs from 21:00 to 5:00. */
 export const DAY_START = 8 * 60;
 export const NIGHT_FROM = 21 * 60;
@@ -74,6 +86,11 @@ export const POCKET_SIZE = 8;
 /** Towns on the bus line, in order; each stop along the way costs BUS_FARE. */
 const BUS_TOWNS = ["maple", "harbor", "neon", "ashgate"];
 const BUS_FARE = 8;
+/** Carnival games only raise a stat below this. */
+const CARNIVAL_CAP = 50;
+/** A fortune reading's boost to a random stat, and how long it lasts. */
+const FORTUNE_BOOST = 6;
+const FORTUNE_TURNS = 400;
 const BUS_MINUTES = 40;
 /** Night crews carry more cash. */
 const NIGHT_CASH = 1.4;
@@ -126,7 +143,23 @@ export interface GameState {
   /** New Game+ round: 0 on a first run. */
   plus: number;
   /** Running totals for the character sheet and achievements. */
-  tally: { jobs: number; rescues: number; meals: number; nightKos: number };
+  tally: {
+    jobs: number;
+    rescues: number;
+    meals: number;
+    nightKos: number;
+    raids?: number;
+    turf?: number;
+    dings?: number;
+  };
+  /** Carnival tickets, spent at the Sunset Pier prize booth. */
+  tickets: number;
+  /** Districts you've cleared out or hold (see data/turf.ts). */
+  turf: Record<string, TurfState>;
+  /** The last dawn that paid tribute and rolled for raids (days since the game began). */
+  lastDawn: number;
+  /** A daily run: the date (YYYY-MM-DD) whose city everyone plays that day. */
+  daily?: string;
   /** Minutes the clock is ahead of the turn count (sleeping skips ahead). */
   clock: number;
 }
@@ -158,6 +191,8 @@ export interface ShopLine {
   /** Price today (daily specials are cheaper). */
   price: number;
   special: boolean;
+  /** The price is in carnival tickets. */
+  tickets?: boolean;
 }
 
 const cheb = (a: { x: number; y: number }, b: { x: number; y: number }) =>
@@ -189,6 +224,7 @@ export class Game {
       state.visits[state.areaId] ?? 1,
       state.flags,
       isNightAt(DAY_START + state.turn + (state.clock ?? 0)),
+      !!state.turf?.[state.areaId]?.held,
     );
     const snap = state.snapshot;
     if (snap && snap.id === state.areaId) {
@@ -260,6 +296,9 @@ export class Game {
       plus: 0,
       tally: { jobs: 0, rescues: 0, meals: 0, nightKos: 0 },
       clock: 0,
+      turf: {},
+      lastDawn: 0,
+      tickets: 0,
     };
     const game = new Game(state);
     game.placeAtArrival("@");
@@ -295,6 +334,7 @@ export class Game {
     g.s.plus = (o.plus ?? 0) + 1;
     g.s.soldOut = [...o.soldOut];
     g.s.tally = { ...o.tally };
+    g.s.tickets = o.tickets ?? 0;
     g.s.rival = { ...o.rival, last: 0 };
     // Title belts stay won.
     for (const [k, v] of Object.entries(o.flags)) if (k.startsWith("title_")) g.s.flags[k] = v;
@@ -343,6 +383,13 @@ export class Game {
       // dealt with the Chrome Dogs, so Kilo doesn't block the way back.
       const past = ["steelworks", "lobby", "roof"].some((a) => state.visits?.[a]);
       if (past || state.flags?.varga) state.flags.kilo = true;
+      state.version = 6;
+    }
+    if (state.version === 6) {
+      // 0.6 saves: no turf yet; the next dawn is the first that counts.
+      state.turf = {};
+      state.lastDawn = dawnsAt(DAY_START + (state.turn ?? 0) + (state.clock ?? 0));
+      state.tickets = 0;
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -600,7 +647,7 @@ export class Game {
     this.stashAlly();
     s.visits[id] = (s.visits[id] ?? 0) + 1;
     const night = this.isNight();
-    this.area = buildArea(id, s.seed, s.visits[id], s.flags, night);
+    this.area = buildArea(id, s.seed, s.visits[id], s.flags, night, !!s.turf[id]?.held);
     for (const e of this.area.enemies) {
       this.toughen(e);
       if (night && this.area.kind === "district") e.cash = Math.round(e.cash * NIGHT_CASH);
@@ -626,6 +673,7 @@ export class Game {
       this.log(`${b.name}, ${b.title}: ${b.taunt}`, b.color);
     }
     this.populateStreet();
+    this.turfNote();
     this.sound("door");
     this.events.push({ type: "area" });
   }
@@ -681,6 +729,7 @@ export class Game {
     const wasNight = this.isNight();
     this.s.turn++;
     if (this.isNight() !== wasNight) this.announceTime();
+    this.checkDawn();
     // Buffs wear off; health and guts trickle back.
     for (const b of p.buffs) b.turns--;
     for (const b of p.buffs.filter((b) => b.turns <= 0)) this.log(`${b.name} wears off.`, C.gray);
@@ -1386,6 +1435,17 @@ export class Game {
         notes.push(`+1 ${STAT_LABEL[k]} (lucky!)`);
       }
     }
+    if (item.fortune) {
+      const k = this.rng.pick(STAT_KEYS);
+      this.log(this.rng.pick(FORTUNES).replace("{stat}", STAT_LABEL[k]), C.magenta);
+      p.buffs = p.buffs.filter((b) => b.name !== item.name);
+      p.buffs.push({ stats: { [k]: FORTUNE_BOOST }, turns: FORTUNE_TURNS, name: item.name });
+      notes.push(`+${FORTUNE_BOOST} ${STAT_LABEL[k]} for ${FORTUNE_TURNS} turns`);
+      if (this.rng.chance(0.2) && p.base[k] < 70) {
+        p.base[k]++;
+        notes.push(`+1 ${STAT_LABEL[k]} for good (the cards were right!)`);
+      }
+    }
     if (item.buff) {
       p.buffs.push({ stats: item.buff.stats, turns: item.buff.turns, name: item.name });
       notes.push(`${describeBonus(item.buff.stats)} for ${item.buff.turns} turns`);
@@ -1909,6 +1969,8 @@ export class Game {
     );
     this.jobProgress(e, at);
     this.eventProgress(e);
+    this.raidProgress(e);
+    this.checkSweep();
     this.pop(e.x, e.y, "KO", e.color);
     if (e.cash > 0) this.collectCash(e.cash, at);
     if (!this.s.bout && this.rng.chance(0.08) && this.walk(at.x, at.y)) {
@@ -2492,11 +2554,134 @@ export class Game {
 
   /** Rests until healed or something shows up. Returns turns rested. */
   /** A night's sleep: the clock jumps to 6:00 the next morning. */
+  /** Minutes on the clock since midnight before the first day. */
+  private absMinute(): number {
+    return DAY_START + this.s.turn + (this.s.clock ?? 0);
+  }
+
+  /** Once a day at dawn: your districts pay up, and a gang may raid one of them. */
+  private checkDawn(): void {
+    const s = this.s;
+    const now = dawnsAt(this.absMinute());
+    if (now <= (s.lastDawn ?? 0)) return;
+    const days = Math.min(3, now - (s.lastDawn ?? 0));
+    s.lastDawn = now;
+    const turf = s.turf ?? {};
+    // Raids nobody stopped: the block is lost.
+    for (const [id, t] of Object.entries(turf)) {
+      if (t.raid === null || this.absMinute() < t.raid) continue;
+      t.raid = null;
+      t.held = false;
+      t.sweeps = 1;
+      const gang = GANGS[AREAS[id].gang ?? ""]?.name ?? "A gang";
+      this.log(`Nobody stopped them: ${gang} took back ${AREAS[id].name}.`, C.red);
+    }
+    const held = Object.entries(turf).filter(([, t]) => t.held);
+    if (held.length) {
+      const pay = held.reduce((n, [id]) => n + TRIBUTE_BASE + TRIBUTE_DEPTH * AREAS[id].depth, 0);
+      s.player.cash += pay * days;
+      this.log(
+        `The shopkeepers on your blocks chip in $${pay * days} for keeping the streets safe.`,
+        C.gold,
+      );
+      const open = held.filter(([, t]) => t.raid === null);
+      if (open.length && this.rng.chance(RAID_CHANCE)) {
+        const [id, t] = this.rng.pick(open);
+        t.raid = this.absMinute() + 23 * 60;
+        const gang = GANGS[AREAS[id].gang ?? ""]?.name ?? "a gang";
+        this.log(
+          this.rng
+            .pick(RAID_LINES)
+            .replace("{gang}", gang.replace(/^The /, ""))
+            .replace("{area}", AREAS[id].name),
+          C.orange,
+        );
+      }
+    }
+  }
+
+  /** What the turf in the district you just walked into looks like. */
+  private turfNote(): void {
+    const t = this.s.turf?.[this.area.id];
+    if (this.area.kind !== "district" || !t) return;
+    if (t.raid !== null) this.log("Raiders are tearing up your block. Drive them out!", C.orange);
+    else if (t.held) this.log("Your turf. Shopkeepers wave as you walk by.", C.lime);
+  }
+
+  /** The district's turf record, made on first use. */
+  turfOf(id: string): TurfState {
+    this.s.turf = this.s.turf ?? {};
+    let t = this.s.turf[id];
+    if (!t) {
+      t = { sweeps: 0, held: false, raid: null, swept: 0 };
+      this.s.turf[id] = t;
+    }
+    return t;
+  }
+
+  /** Called after every street knock-out: the last gang member down clears the district. */
+  private checkSweep(): void {
+    const a = this.area;
+    if (a.kind !== "district" || !TURF_AREAS.includes(a.id) || this.s.bout) return;
+    if (a.enemies.some((e) => !e.ally && e.gang)) return;
+    const visit = this.s.visits[a.id] ?? 1;
+    const t = this.turfOf(a.id);
+    if (t.swept === visit) return;
+    t.swept = visit;
+    if (t.held) return;
+    t.sweeps++;
+    if (t.sweeps >= TURF_SWEEPS) {
+      t.held = true;
+      this.s.tally.turf = (this.s.tally.turf ?? 0) + 1;
+      this.log(
+        `${a.name} is YOUR TURF now! Fewer gang crews, cheaper street carts, and the shopkeepers will chip in every morning.`,
+        C.yellow,
+      );
+      this.events.push({ type: "impact", power: 1 });
+      this.sound("levelup");
+    } else
+      this.log(
+        `You cleared out ${a.name}. (${t.sweeps} of ${TURF_SWEEPS} - clear it ${TURF_SWEEPS - t.sweeps} more time${TURF_SWEEPS - t.sweeps > 1 ? "s" : ""} to make it your turf.)`,
+        C.lime,
+      );
+  }
+
+  /** Raiders show up in a district you hold. */
+  private spawnRaid(): void {
+    const a = this.area;
+    const t = this.s.turf?.[a.id];
+    if (a.kind !== "district" || !t?.held || t.raid === null || !a.gang) return;
+    const spot = this.farSpots(14)[0] ?? this.farSpots(8)[0];
+    if (!spot) return;
+    const boss = makeGangMember(this.rng, a.gang, "lieutenant", a.depth + 1, spot.x, spot.y);
+    boss.title = `${GANGS[a.gang].name} Raid Boss`;
+    boss.maxHp = Math.round(boss.maxHp * 1.4);
+    boss.hp = boss.maxHp;
+    boss.event = "raid";
+    boss.cash = Math.round(boss.cash * 1.5);
+    this.toughen(boss);
+    a.enemies.push(boss);
+    for (const s of this.spotsNear(spot, 3).slice(0, 4)) {
+      const e = makeGangMember(
+        this.rng,
+        a.gang,
+        this.rng.pick(["punk", "scrapper", "bruiser", "slinger"] as const),
+        a.depth,
+        s.x,
+        s.y,
+      );
+      e.event = "raid";
+      this.toughen(e);
+      a.enemies.push(e);
+    }
+  }
+
   private sleepUntilMorning(): void {
     const { minute } = this.clock();
     const until = (6 * 60 - minute + 1440) % 1440;
     this.s.clock = (this.s.clock ?? 0) + until;
     this.log("You sleep like a log and wake up as the sun comes up.", C.yellow);
+    this.checkDawn();
   }
 
   rest(): number {
@@ -2533,6 +2718,7 @@ export class Game {
         noGain: !!gains && gains.length === 0 && !item.heal && !item.gutsUp,
         price: this.priceOf(shopId, id),
         special: this.specialOf(shopId) === id,
+        tickets: SHOPS[shopId]?.kind === "prizes",
       };
     });
   }
@@ -2554,10 +2740,14 @@ export class Game {
   }
 
   priceOf(shopId: string, itemId: string): number {
+    const tix = SHOPS[shopId]?.tickets?.[itemId];
+    if (tix !== undefined) return tix;
     let price = ITEMS[itemId].price;
     if (this.specialOf(shopId) === itemId) price = Math.max(1, Math.round(price * 0.6));
     if (SHOPS[shopId]?.kind === "pawn" && !PAWN_RARE.includes(itemId))
       price = Math.round(price * PAWN_DISCOUNT);
+    if (SHOPS[shopId]?.kind === "vendor" && this.s.turf?.[this.area.id]?.held)
+      price = Math.max(1, Math.round(price * TURF_DISCOUNT));
     // Hustlers haggle everything down a little.
     if (this.s.player.style === "hustler" && price > 1)
       price = Math.max(1, Math.round(price * 0.9));
@@ -2646,6 +2836,81 @@ export class Game {
     return { ok: true, message: msg };
   }
 
+  /** How many tries one carnival game gives you. */
+  carnivalTries(shopId: string): number {
+    return SHOPS[shopId]?.carnival?.game === "gallery" ? 3 : 1;
+  }
+
+  /**
+   * Plays a carnival game. `aims` has one number per try, 0 (way off) to 1 (dead center), from
+   * the timing meter on screen. Pays the fee, scores it and hands out tickets.
+   */
+  playCarnival(
+    shopId: string,
+    aims: number[],
+  ): { ok: boolean; message: string; tickets: number; score: number; best: boolean } {
+    const c = SHOPS[shopId]?.carnival;
+    const p = this.s.player;
+    const none = { tickets: 0, score: 0, best: false };
+    if (!c) return { ok: false, message: "There's no game here.", ...none };
+    if (!this.shopOpen(shopId)) return { ok: false, message: "It's closed right now.", ...none };
+    if (p.cash < c.fee) {
+      this.sound("deny");
+      return { ok: false, message: `A game costs $${c.fee}.`, ...none };
+    }
+    p.cash -= c.fee;
+    const aim = (a: number | undefined) => Math.max(0, Math.min(1, a ?? 0));
+    let tickets: number;
+    let score: number;
+    let best: boolean;
+    let message: string;
+    if (c.game === "striker") {
+      // Timing does most of it; strength gives a head start.
+      score = Math.round(100 * (0.85 * aim(aims[0]) + Math.min(0.15, this.stat("strength") / 100)));
+      best = score >= 95;
+      tickets = Math.floor(score / 8) + (best ? 15 : 0);
+      if (best) {
+        this.s.tally.dings = (this.s.tally.dings ?? 0) + 1;
+        message = `DING!! The bell rings out over the whole pier! (${tickets} tickets)`;
+        if (p.base.strength < CARNIVAL_CAP && this.rng.chance(0.5)) {
+          p.base.strength++;
+          message += " Your arms feel stronger. +1 Strength!";
+        }
+      } else
+        message =
+          score >= 75
+            ? `So close! The puck flies up to ${score}. (${tickets} tickets)`
+            : `The puck wobbles up to ${score}. (${tickets} tickets)`;
+    } else {
+      // Quick hands make the targets easier to hit.
+      const need = Math.max(0.35, 0.72 - this.stat("agility") / 300);
+      let hits = 0;
+      let bulls = 0;
+      for (const a of aims.slice(0, 3).map(aim)) {
+        if (a >= 0.93) bulls++;
+        else if (a >= need) hits++;
+      }
+      best = bulls === 3;
+      score = bulls * 2 + hits;
+      tickets = hits * 3 + bulls * 6 + (best ? 12 : 0);
+      if (best) {
+        message = `Three bullseyes! The attendant whistles. (${tickets} tickets)`;
+        if (p.base.agility < CARNIVAL_CAP - 10 && this.rng.chance(0.5)) {
+          p.base.agility++;
+          message += " Your eyes feel sharper. +1 Agility!";
+        }
+      } else
+        message =
+          bulls + hits === 0
+            ? "Ping, ping, ping. Not a duck falls over. (0 tickets)"
+            : `${bulls + hits} of 3 ducks down${bulls ? `, ${bulls} bullseye${bulls > 1 ? "s" : ""}` : ""}. (${tickets} tickets)`;
+    }
+    this.s.tickets = (this.s.tickets ?? 0) + tickets;
+    this.sound(best ? "levelup" : tickets > 0 ? "coin" : "miss");
+    this.log(`${SHOPS[shopId].name}: ${message}`, best ? C.yellow : C.light);
+    return { ok: true, message, tickets, score, best };
+  }
+
   /** What a technique costs you (all-rounders learn cheaper). */
   techPrice(techId: string): number {
     const price = TECHNIQUES[techId]?.price ?? 0;
@@ -2670,7 +2935,12 @@ export class Game {
     if (item.kind === "book" && this.s.soldOut.includes(itemId))
       return { ok: false, message: "Sold out. You've read it already." };
     const price = this.priceOf(shopId, itemId);
-    if (p.cash < price) {
+    const prize = SHOPS[shopId]?.kind === "prizes";
+    if (prize && this.s.tickets < price) {
+      this.sound("deny");
+      return { ok: false, message: `You need ${price - this.s.tickets} more tickets.` };
+    }
+    if (!prize && p.cash < price) {
       this.sound("deny");
       return { ok: false, message: `You need $${price - p.cash} more.` };
     }
@@ -2679,7 +2949,10 @@ export class Game {
       this.sound("deny");
       return { ok: false, message: "Your pockets are full." };
     }
-    p.cash -= price;
+    if (prize) {
+      this.s.tickets -= price;
+      this.s.flags[`won_${itemId}`] = true;
+    } else p.cash -= price;
     if (pocketed) {
       p.pockets.push(itemId);
       this.sound("buy");
@@ -2814,6 +3087,7 @@ export class Game {
     // The ride takes a while.
     this.s.clock = (this.s.clock ?? 0) + BUS_MINUTES;
     this.log(`You pay $${route.fare} and ride the bus to ${route.name}.`, C.cyan);
+    this.checkDawn();
     this.enterArea(town, "bus");
     return { ok: true, message: "" };
   }
@@ -3031,7 +3305,10 @@ export class Game {
       }
       this.log(`Word is ${boss.name} hangs around here. (Bounty: $${job.reward})`, C.yellow);
     }
-    if (a.kind === "district") this.streetEvent();
+    if (a.kind === "district") {
+      this.spawnRaid();
+      this.streetEvent();
+    }
   }
 
   private streetEvent(): void {
@@ -3095,6 +3372,23 @@ export class Game {
       const amount = Math.round((10 + 7 * a.depth) * this.rng.range(0.8, 1.3));
       a.items.push({ kind: "cash", x: spot.x, y: spot.y, amount });
     }
+  }
+
+  /** The last raider down saves the block. */
+  private raidProgress(e: Enemy): void {
+    const a = this.area;
+    const t = this.s.turf?.[a.id];
+    if (e.event !== "raid" || !t || t.raid === null) return;
+    if (a.enemies.some((o) => o.event === "raid")) return;
+    t.raid = null;
+    this.s.tally.raids = (this.s.tally.raids ?? 0) + 1;
+    const cash = Math.round((25 + 15 * a.depth) * this.rng.range(0.9, 1.1));
+    this.s.player.cash += cash;
+    this.log(
+      `You drove the raiders out of ${a.name}! The shopkeepers pass the hat. (+$${cash})`,
+      C.gold,
+    );
+    this.sound("levelup");
   }
 
   /** People rescued from a shakedown pay you back. */
@@ -3444,6 +3738,16 @@ export function jobText(job: Job, brief = false): string {
 }
 
 /** Whether a clock time (minutes since the start of day 1) falls at night. */
+/** Dawns since the game began, for a clock minute (the first morning starts at 0). */
+export function dawnsAt(minute: number): number {
+  return Math.floor((minute - DAWN) / 1440);
+}
+
+/** The seed of the daily run for a date (YYYY-MM-DD): the same city for everyone. */
+export function dailySeed(date: string): number {
+  return hashSeed(hashString(`rumble-row-daily-${date}`), 7);
+}
+
 export function isNightAt(t: number): boolean {
   const m = ((t % 1440) + 1440) % 1440;
   return m >= NIGHT_FROM || m < NIGHT_TO;

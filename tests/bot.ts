@@ -12,6 +12,7 @@ import { TECHNIQUES } from "../src/game/data/techniques";
 
 let botTakesJobs = true;
 let botHires = true;
+let botTurf = false;
 
 import { Game } from "../src/game/game";
 import { canStep, distanceMap } from "../src/game/grid";
@@ -50,6 +51,8 @@ export interface RunReport {
   jobsDone: number;
   /** Times the rival was beaten. */
   rivalWins: number;
+  /** Districts held at the end. */
+  turf: number;
   /** Snapshots when each town was first reached. */
   snapshots: Record<string, string>;
   /** The game itself, to carry on into New Game+. */
@@ -68,11 +71,14 @@ export function playGame(
   hirePartners = true,
   /** Keep playing this game instead of starting a new one (New Game+ runs). */
   start?: Game,
+  /** Hunt down every gang member in a district to take it as turf. */
+  takeTurf = false,
 ): RunReport {
   const g = start ?? Game.create("Bot", "street", seed, difficulty, style);
   const firstTurn = g.s.turn;
   botTakesJobs = takeJobs;
   botHires = hirePartners;
+  botTurf = takeTurf;
   const r: RunReport = {
     seed,
     turns: 0,
@@ -92,6 +98,7 @@ export function playGame(
     jobs: 0,
     jobsDone: 0,
     rivalWins: 0,
+    turf: 0,
   };
   let mode: "push" | "retreat" = "push";
   let shoppedIn: unknown = null;
@@ -152,6 +159,7 @@ export function playGame(
   r.techniques = [...g.player.techniques];
   r.jobsDone = r.jobs - g.s.jobs.length;
   r.rivalWins = g.s.rival.wins;
+  r.turf = Object.values(g.s.turf).filter((t) => t.held).length;
   for (const k of ALL_STATS) r.stats[k] = g.stat(k);
   return r;
 
@@ -226,6 +234,12 @@ export function playGame(
         stepTo([boss], true);
         return;
       }
+    }
+    // Taking turf: knock out everyone left before moving on.
+    if (botTurf && frac > 0.5 && area.kind === "district" && !g.s.turf[area.id]?.held) {
+      const left = area.enemies.filter((e) => !e.ally && e.gang);
+      left.sort((a, b) => cheb(a, p) - cheb(b, p));
+      if (left.length && stepTo([left[0]], true)) return;
     }
     // Clear leftover enemies sometimes for cash; otherwise move on.
     stepTo(exitsOf(">"));

@@ -142,7 +142,7 @@ export class ShopScreen implements Screen {
     const g = this.game;
     const { x, y, w, h } = BOX;
     t.box(x, y, w, h, this.shop.color, this.shop.name, this.shop.color);
-    const cash = `$${g.player.cash}`;
+    const cash = this.shop.kind === "prizes" ? `${g.s.tickets ?? 0} tickets` : `$${g.player.cash}`;
     t.text(x + w - cash.length - 3, y, ` ${cash} `, C.gold);
     // Message area.
     const msg = Term.wrap(this.message, w - 4);
@@ -214,7 +214,7 @@ export class ShopScreen implements Screen {
       const yy = y0 + i;
       const sel = i === this.cursor;
       const item = line.item;
-      const afford = g.player.cash >= line.price;
+      const afford = line.tickets ? (g.s.tickets ?? 0) >= line.price : g.player.cash >= line.price;
       const dim = line.soldOut || !afford;
       if (sel) t.fill(x + 1, yy, w - 2, 1, " ", C.light, C.dark);
       t.text(x + 2, yy, sel ? "►" : " ", C.yellow, sel ? C.dark : undefined);
@@ -229,7 +229,13 @@ export class ShopScreen implements Screen {
       t.text(
         x + 29,
         yy,
-        line.soldOut ? "SOLD" : line.price === 0 ? "free" : `$${line.price}`,
+        line.soldOut
+          ? "SOLD"
+          : line.tickets
+            ? `${line.price}t`
+            : line.price === 0
+              ? "free"
+              : `$${line.price}`,
         line.soldOut ? C.dim : afford ? C.gold : C.red,
       );
       // A mark after the name for things you can carry away; the detail below explains it.
@@ -260,6 +266,15 @@ export class ShopScreen implements Screen {
         yy++,
         `Today's special: 40% off (usually $${sel.item.price}). Changes next visit.`,
         C.lime,
+      );
+    if (sel.tickets)
+      t.text(
+        x + 4,
+        yy++,
+        `Costs ${sel.price} tickets. Win them at the High Striker and the Shooting Gallery.`,
+        C.magenta,
+        undefined,
+        x + w - 1,
       );
     if (this.shop.kind === "pawn")
       t.text(

@@ -31,6 +31,8 @@ export interface ItemDef {
   revive?: boolean;
   /** 1 in 4 chance of +1 to a random stat. */
   lucky?: boolean;
+  /** A fortune reading: a boost to a random stat for a while, sometimes for good. */
+  fortune?: boolean;
   flavor: string;
 }
 
@@ -162,6 +164,46 @@ const items: ItemDef[] = [
   { id: "bikerjacket", name: "Biker Jacket", kind: "gear", slot: "body", price: 950, stats: { defense: 15, guts: 2 }, flavor: "Patches from clubs that don't exist anymore." },
   { id: "pocketwatch", name: "Grandpa's Pocket Watch", kind: "gear", slot: "charm", price: 800, stats: { guts: 6, defense: 3, agility: 2 }, flavor: "Still ticking. Somebody's grandpa misses it." },
 
+  // ---- Sunset Pier ----
+  // Gull's Pier Grill
+  { id: "corndog", name: "Corn Dog", kind: "food", price: 6, heal: 10, stats: { strength: 1 }, upTo: 50, takeout: true, flavor: "Dipped, fried, on a stick. Perfect." },
+  { id: "clams", name: "Fried Clam Strips", kind: "food", price: 14, heal: 18, stats: { defense: 1, stamina: 3 }, upTo: 50, flavor: "A paper boat of golden crunch." },
+  { id: "chowderfries", name: "Chowder Fries", kind: "food", price: 18, heal: 24, stats: { guts: 1, stamina: 4 }, upTo: 50, flavor: "Fries drowned in clam chowder. A pier legend." },
+  { id: "lemonade", name: "Fresh Lemonade", kind: "food", price: 3, heal: 4, gutsUp: 4, flavor: "Squeezed while you wait." },
+  // Sweet Tooth Stand
+  { id: "funnelcake", name: "Funnel Cake", kind: "food", price: 10, heal: 14, stats: { stamina: 4 }, upTo: 50, flavor: "Powdered sugar gets everywhere." },
+  { id: "cottoncandy", name: "Cotton Candy", kind: "food", price: 4, heal: 5, gutsUp: 4, stats: { agility: 1 }, upTo: 40, flavor: "Pink clouds. Pure sugar rush." },
+  { id: "caramelapple", name: "Caramel Apple", kind: "food", price: 8, heal: 10, stats: { punch: 1 }, upTo: 50, takeout: true, flavor: "Crunch through the shell like a jab." },
+  { id: "taffy", name: "Saltwater Taffy", kind: "tonic", price: 5, heal: 10, gutsUp: 2, flavor: "A bag of chewy little rainbows." },
+
+  // ---- Lantern Row (night market) ----
+  // Skewer Stall
+  { id: "skewers", name: "Lamb Skewers", kind: "food", price: 26, heal: 26, stats: { strength: 2, stamina: 3 }, upTo: 75, flavor: "Cumin, chili, smoke. Five sticks." },
+  { id: "takoyaki", name: "Takoyaki", kind: "food", price: 22, heal: 20, stats: { kick: 1, agility: 1 }, upTo: 75, takeout: true, flavor: "Hot little octopus balls. Careful." },
+  { id: "scallion", name: "Scallion Pancake", kind: "food", price: 14, heal: 14, stats: { guts: 1 }, upTo: 75, takeout: true, flavor: "Flaky, oily, folded into quarters." },
+  // Lu's Hot Pot
+  { id: "hotpot", name: "Hot Pot for One", kind: "food", price: 45, heal: 50, stats: { stamina: 8, defense: 1 }, upTo: 75, flavor: "A bubbling pot of chili broth and everything in it." },
+  { id: "shavedice", name: "Mango Shaved Ice", kind: "food", price: 16, heal: 14, stats: { agility: 1, guts: 1 }, upTo: 75, flavor: "A snowy mountain of mango." },
+  { id: "dumplingsoup", name: "Spicy Wonton Soup", kind: "food", price: 24, heal: 24, stats: { punch: 1, guts: 1, stamina: 3 }, upTo: 75, flavor: "Silky wontons in red oil." },
+  // Boba Bros
+  { id: "boba", name: "Brown Sugar Boba", kind: "food", price: 12, heal: 10, gutsUp: 6, stats: { agility: 1 }, upTo: 75, takeout: true, flavor: "Tiger stripes of syrup and chewy pearls." },
+  { id: "tarotea", name: "Taro Milk Tea", kind: "food", price: 12, heal: 10, gutsUp: 6, stats: { defense: 1 }, upTo: 75, takeout: true, flavor: "Purple, nutty, very smooth." },
+  { id: "matcha", name: "Matcha Latte", kind: "food", price: 10, heal: 6, gutsUp: 10, flavor: "Grassy and calm. Steadies your nerves." },
+  // Madame Velvet's Fortunes
+  { id: "fortune_read", name: "Fortune Reading", kind: "service", price: 30, fortune: true, flavor: "Madame Velvet turns a card. \"Interesting...\"" },
+  // Lantern Charms
+  { id: "papercharm", name: "Paper Lantern Charm", kind: "gear", slot: "charm", price: 260, stats: { agility: 3, guts: 4 }, flavor: "A tiny red lantern that never goes out." },
+  { id: "redstring", name: "Red String Bracelet", kind: "gear", slot: "charm", price: 380, stats: { punch: 3, kick: 3, guts: 3 }, flavor: "Tied on by someone who wanted you to come back." },
+  { id: "jadetiger", name: "Jade Tiger", kind: "gear", slot: "charm", price: 520, stats: { guts: 6, strength: 4, defense: 2 }, flavor: "Cold to the touch. Warm in a fight." },
+  // Old Wen's Herbs
+  { id: "dragonwell", name: "Dragon Well Tonic", kind: "tonic", price: 55, heal: 80, flavor: "Bitter tea that knits bruises shut." },
+  { id: "fivespirits", name: "Five Spirits Elixir", kind: "tonic", price: 70, buff: { stats: { punch: 4, kick: 4, guts: 8 }, turns: 120 }, flavor: "Old Wen won't say what's in it." },
+
+  // ---- Prize Booth (paid for with tickets, never sold for cash) ----
+  { id: "kewpie", name: "Kewpie Doll", kind: "gear", slot: "charm", price: 60, stats: { agility: 2, guts: 3 }, flavor: "Won fair and square. Mostly." },
+  { id: "gorilla", name: "Giant Stuffed Gorilla", kind: "gear", slot: "charm", price: 240, stats: { strength: 4, defense: 4, guts: 2 }, flavor: "You carry it everywhere. It intimidates people." },
+  { id: "ringmaster", name: "Ringmaster's Jacket", kind: "gear", slot: "body", price: 500, stats: { defense: 10, guts: 4, agility: 2 }, flavor: "Red coat, gold buttons. The crowd loves it." },
+
   // ---- Street vendors ----
   { id: "hotdog", name: "Hot Dog", kind: "food", price: 4, heal: 8, stats: { strength: 1 }, upTo: 35, takeout: true, flavor: "Mustard, onions, mystery meat." },
   { id: "tacos", name: "Street Tacos", kind: "food", price: 6, heal: 12, stats: { kick: 1 }, upTo: 35, flavor: "Three for six. A steal." },
@@ -179,6 +221,16 @@ const items: ItemDef[] = [
   { id: "platkicks", name: "Platinum Kicks", kind: "gear", slot: "feet", price: 1600, stats: { kick: 14, agility: 4, defense: 2 }, flavor: "The Velvet Glove's own shoes. They've never lost a fight." },
   // ---- Earned on the street (never sold) ----
   { id: "rivalband", name: "Dex's Headband", kind: "gear", slot: "charm", price: 400, stats: { punch: 3, kick: 3, agility: 2, guts: 3 }, flavor: "Your old rival's lucky headband. He insisted." },
+];
+
+/** What Madame Velvet sees in the cards. {stat} is the stat the reading boosts. */
+export const FORTUNES = [
+  '"The Tower. Something big falls soon - make sure it isn\'t you." (Your {stat} feels sharper.)',
+  '"The Chariot. Keep moving forward and nothing can stop you." (Your {stat} feels sharper.)',
+  '"Strength. Of course it\'s Strength. Look at you." (Your {stat} feels sharper.)',
+  '"The Star. Someone out there is rooting for you." (Your {stat} feels sharper.)',
+  '"The Wheel. Luck turns tonight. Be ready when it does." (Your {stat} feels sharper.)',
+  '"The Moon. Watch the shadows on your way home." (Your {stat} feels sharper.)',
 ];
 
 export const ITEMS: Record<string, ItemDef> = Object.fromEntries(items.map((i) => [i.id, i]));

@@ -1,5 +1,5 @@
 // Plays several full games with the balance bot and prints how each one went.
-// Usage: pnpm exec tsx scripts/balance.mts [runs] [maxTurns] [difficulty] [style] [jobs|nojobs] [partner|nopartner]
+// Usage: pnpm exec tsx scripts/balance.mts [runs] [maxTurns] [difficulty] [style] [jobs|nojobs] [partner|nopartner] [turf]
 import type { StyleId } from "../src/game/data/styles";
 import { playGame } from "../tests/bot";
 
@@ -9,6 +9,7 @@ const difficulty = (process.argv[4] ?? "normal") as "easy" | "normal" | "hard";
 const style = (process.argv[5] ?? "allround") as StyleId;
 const jobs = process.argv[6] !== "nojobs";
 const partners = process.argv[7] !== "nopartner";
+const turf = process.argv[8] === "turf";
 const route = [
   "maple",
   "alleys",
@@ -30,11 +31,11 @@ const route = [
 
 const reports = [];
 for (let i = 0; i < runs; i++) {
-  const r = playGame(1000 + i * 7, maxTurns, difficulty, style, jobs, partners);
+  const r = playGame(1000 + i * 7, maxTurns, difficulty, style, jobs, partners, undefined, turf);
   reports.push(r);
   const far = route.filter((a) => r.reached[a] !== undefined).pop();
   console.log(
-    `\nseed ${r.seed}: ${r.won ? "WON" : `reached ${far}`} in ${r.turns} turns, ${r.deaths} KOs taken, ${r.kos} enemies KO'd, ${r.trips} town visits, jobs ${r.jobsDone}/${r.jobs}, rival beaten ${r.rivalWins}x`,
+    `\nseed ${r.seed}: ${r.won ? "WON" : `reached ${far}`} in ${r.turns} turns, ${r.deaths} KOs taken, ${r.kos} enemies KO'd, ${r.trips} town visits, jobs ${r.jobsDone}/${r.jobs}, rival beaten ${r.rivalWins}x, turf ${r.turf}`,
   );
   console.log(
     `  reached: ${route

@@ -1,8 +1,30 @@
-RUMBLE ROW 0.6 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.7 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.7 - "TURF WAR"
+------------------------
+- Sunset Pier (head down the boardwalk from Harbor Market): a carnival with a pier grill,
+  a sweets stand, and two games you play with a timing meter. Ring the bell on the High
+  Striker or shoot ducks in the Shooting Gallery to win tickets, then trade them at the Prize
+  Booth for prizes like the Giant Stuffed Gorilla and the Ringmaster's Jacket.
+- Lantern Row (up the alley off the Neon Strip): a night market. Most stalls only open after
+  dark: lamb skewers, hot pot, jade charms, and Madame Velvet's fortunes (a fortune boosts a
+  random stat for a while, and now and then for good). Boba Bros and the herbalist open by day.
+- Turf: knock out every gang member in a street district on 3 different visits and it
+  becomes your turf. Your blocks have fewer gang crews and 20% cheaper street carts, and
+  every dawn (5:00) the shopkeepers there chip in some cash.
+- Raids: some mornings a gang moves back into one of your districts. Beat the raiders before
+  the next dawn, or you lose the block (and have to clear it out again).
+- City map (press N, or from the Esc menu): every area you've found, who runs it, the bosses
+  you've beaten, and your turf.
+- Daily runs: pick "Daily run" when you start a new game and you get the same city as
+  everyone else playing that day. Compare runs with friends! Records mark daily runs.
+- Six new achievements: turf, raids, daily runs, ringing the bell, and the grand prize.
+- Your 0.6 save carries over.
 
 
 NEW IN 0.6 - "UPTOWN"
@@ -110,6 +132,7 @@ Press ? in the game for every control (keys can be changed in Settings). The bas
   G / T ................. pick up / throw crates, trash cans, pipes...
   I ..................... pockets (snacks, bandages, firecrackers)
   R ..................... rest      O ..... your jobs      P ... character sheet
+  N ..................... city map
   ] / [ ................. walk to the next exit / back toward town
   Esc ................... menu      F11 ... fullscreen
 

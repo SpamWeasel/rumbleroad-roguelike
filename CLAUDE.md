@@ -70,6 +70,21 @@ Electron setup is copied from Hollowdeep.
   `gearStats`/`gearName`, and put gear on with `wear`. Counter Stance is a buff with
   `counter: true` checked at the top of `strike`. Save version 6 (0.5 saves past the subway
   get `flags.kilo`).
+- **Turf** (0.7, `data/turf.ts`): `s.turf[id]` per random district (`TURF_AREAS`).
+  `checkSweep` runs after every street KO: no gang member left = one sweep per visit;
+  `TURF_SWEEPS` = held. Held districts build with `quiet` (`TURF_QUIET` fewer groups) and
+  vendors there cost `TURF_DISCOUNT`. `checkDawn` (passTurn, sleeps, buses) runs once per
+  dawn (`dawnsAt`, `s.lastDawn`): lost raids, tribute, maybe a new raid (`raid` = clock
+  minute deadline). `spawnRaid` adds raiders tagged `event: "raid"`; `raidProgress` ends it.
+  City map screen (`citymap.ts`, key N). Daily runs: `dailySeed(date)`, `s.daily`, shown in
+  Records. Save version 7 (0.6 saves upgrade).
+- **Side streets** (0.7): `pier` (Sunset Pier, harbor "v") and `lantern` (Lantern Row, neon "^")
+  are town-kind side areas the bot never visits. Shop kinds `carnival` (`ShopDef.carnival`;
+  `playCarnival(shop, aims)` scores 0-1 timing from `CarnivalScreen`'s meter, pays
+  `s.tickets`, raises a stat below `CARNIVAL_CAP` on a perfect game) and `prizes`
+  (`ShopDef.tickets` prices; `priceOf` returns tickets, `buy` spends them and sets
+  `flags.won_<item>`). `ItemDef.fortune` = random-stat buff (`FORTUNES`). Most Lantern Row
+  stalls have `hours: "night"`.
 - **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
   picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
@@ -97,6 +112,10 @@ Electron setup is copied from Hollowdeep.
 - 0.6 with Ashgate: Normal ~10,100 / ~6 with partners, ~11,000 / ~6 solo; Easy ~7,900 / ~2;
   Hard ~11,100 / ~8.5. All win. Ashgate removed the 0.5 wall before the tower (shopping trips
   were 3 areas long), so Varga was buffed to 820 health; the roof fight is ~45-100 turns.
+- 0.7 with turf: Normal ~9,300 / ~5 with partners, ~10,400 / ~6 solo; Easy ~6,600 / ~1.5;
+  Hard ~11,000 / ~8. The bot often takes a district by accident. `balance.mts ... turf` makes
+  it hunt every gang member to take turf: slower (Normal ~10,200, Hard ~13,100) but it holds
+  1-4 districts. Turf is a side goal, not a shortcut.
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -107,7 +126,7 @@ Electron setup is copied from Hollowdeep.
 - The browser pane's screenshots can go stale; trust `pnpm smoke` screenshots for visuals.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
 - `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, partner,
-  sheet, street, night, bus, kennel, ashgate, tailor, pawn, help, achievements, ending, arena,
+  sheet, street, night, bus, kennel, ashgate, tailor, pawn, citymap, carnival, nightmarket, help, achievements, ending, arena,
   bout and saves (backup
   recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.
