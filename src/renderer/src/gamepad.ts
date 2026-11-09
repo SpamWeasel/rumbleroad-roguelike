@@ -8,6 +8,7 @@ import { type Action, settings } from "./settings";
  *           Y guard   LB wait   RB next special   LT grab   RT throw   View pockets
  *           Menu (start) menu   L3 log   R3 rest
  *           View + RB / View + LB walk to the next / previous area (View alone opens pockets)
+ *           View + Y look around (d-pad moves the cursor, Menu ends it)   View + X Street Guide
  * Menus:    stick / d-pad choose   A confirm   B back   X "take to go"   LB/RB switch tabs
  */
 const PLAY_BUTTONS: Record<number, Action> = {
@@ -79,9 +80,15 @@ export class GamepadInput {
           this.viewChord = false;
           continue;
         }
-        if (playing && (i === 4 || i === 5) && this.held.has(8)) {
+        const chord: Record<number, "travelOn" | "travelBack" | "look" | "guide"> = {
+          5: "travelOn",
+          4: "travelBack",
+          3: "look",
+          2: "guide",
+        };
+        if (playing && chord[i] && this.held.has(8)) {
           this.viewChord = true;
-          const code = settings.keys[i === 5 ? "travelOn" : "travelBack"][0];
+          const code = settings.keys[chord[i]][0];
           if (code) send(code, false);
           continue;
         }

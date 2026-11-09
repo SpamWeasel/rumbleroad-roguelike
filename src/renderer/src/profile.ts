@@ -7,9 +7,11 @@ import { readData, writeData } from "./storage";
 interface Profile {
   version: 1;
   achievements: Record<string, string>;
+  /** New-player tips already shown. */
+  tips?: string[];
 }
 
-const profile: Profile = { version: 1, achievements: {} };
+const profile: Profile = { version: 1, achievements: {}, tips: [] };
 
 export async function loadProfile(): Promise<void> {
   try {
@@ -17,9 +19,26 @@ export async function loadProfile(): Promise<void> {
     if (saved.achievements && typeof saved.achievements === "object")
       for (const [id, date] of Object.entries(saved.achievements))
         if (ACHIEVEMENT_BY_ID[id] && typeof date === "string") profile.achievements[id] = date;
+    if (Array.isArray(saved.tips))
+      profile.tips = saved.tips.filter((t): t is string => typeof t === "string");
   } catch {
     // A broken profile just starts fresh.
   }
+}
+
+export function tipSeen(id: string): boolean {
+  return !!profile.tips?.includes(id);
+}
+
+export function markTip(id: string): void {
+  profile.tips = [...(profile.tips ?? []), id];
+  void writeData("profile", JSON.stringify(profile, null, 2));
+}
+
+/** Shows every tip again (Settings). */
+export function resetTips(): void {
+  profile.tips = [];
+  void writeData("profile", JSON.stringify(profile, null, 2));
 }
 
 export function earned(id: string): string | undefined {

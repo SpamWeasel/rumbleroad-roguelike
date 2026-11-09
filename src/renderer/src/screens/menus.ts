@@ -8,7 +8,7 @@ import { SAVE_SLOTS, type SlotInfo } from "../../../shared/bridge";
 import type { App, Screen } from "../app";
 import { setMusicVolume, setVolume } from "../audio";
 import { isBack, isDown, isLeft, isRight, isUp } from "../input";
-import { checkAchievements, earned, earnedCount, styleUnlocked } from "../profile";
+import { checkAchievements, earned, earnedCount, resetTips, styleUnlocked } from "../profile";
 import { loadRecords, type RunRecord } from "../records";
 import {
   ACTION_LABEL,
@@ -25,6 +25,7 @@ import { COLS, ROWS, Term } from "../term";
 import { JobsScreen } from "./board";
 import { CharacterScreen } from "./character";
 import { CityMapScreen } from "./citymap";
+import { GuideScreen } from "./guide";
 import { PlayScreen } from "./play";
 import { QuestLogScreen } from "./quests";
 
@@ -477,6 +478,7 @@ class SettingsScreen implements Screen {
       `Music volume: ${"■".repeat(settings.music)}${"·".repeat(10 - settings.music)} ${settings.music * 10}%`,
       `Text size: ${settings.textSize === "large" ? "Large" : "Normal"}`,
       `Screen shake on big hits: ${settings.shake ? "On" : "Off"}`,
+      `Tips for new players: ${settings.tips ? "On" : "Off"}`,
       ...(window.rumblerow ? [`Fullscreen: ${settings.fullscreen ? "On" : "Off"}  (F11)`] : []),
       "Change keys...",
       "Back",
@@ -513,7 +515,11 @@ class SettingsScreen implements Screen {
       settings.textSize = settings.textSize === "large" ? "normal" : "large";
       this.app.relayout();
     } else if (o.startsWith("Screen")) settings.shake = !settings.shake;
-    else if (o.startsWith("Fullscreen")) {
+    else if (o.startsWith("Tips")) {
+      settings.tips = !settings.tips;
+      // Turning them back on shows them all again.
+      if (settings.tips) resetTips();
+    } else if (o.startsWith("Fullscreen")) {
       this.app.toggleFullscreen();
       return;
     } else if (o.startsWith("Change") && confirm(e)) {
@@ -530,14 +536,15 @@ class SettingsScreen implements Screen {
     const opts = this.options();
     const x = 22;
     const y = 7;
-    t.box(x, y, 66, opts.length * 2 + 11, C.cyan, "Settings", C.cyan);
+    t.box(x, y, 66, opts.length * 2 + 12, C.cyan, "Settings", C.cyan);
     drawOptions(t, x + 3, y + 2, opts, this.cursor);
     const yy = y + 3 + opts.length * 2;
     t.text(x + 3, yy, "Controllers work everywhere: plug one in and press A.", C.gray);
     t.text(x + 3, yy + 1, "Stick/d-pad move, A punch, B kick, X special, Y guard.", C.gray);
     t.text(x + 3, yy + 2, "LB wait, RB next special, LT grab, RT throw, View pockets.", C.gray);
-    t.text(x + 3, yy + 3, "View + RB / View + LB walk to the next / previous area.", C.gray);
-    t.text(x + 3, yy + 5, "↑↓ choose   ←→ or Enter change   Esc back", C.dim);
+    t.text(x + 3, yy + 3, "View + RB / LB: walk to the next / previous area.", C.gray);
+    t.text(x + 3, yy + 4, "View + Y: look around.   View + X: Street Guide.", C.gray);
+    t.text(x + 3, yy + 6, "↑↓ choose   ←→ or Enter change   Esc back", C.dim);
   }
 }
 
@@ -730,7 +737,7 @@ export class HelpScreen implements Screen {
       ],
       [
         "MORE",
-        `${k("rest")} rests when nobody's around. ${k("log")} shows the log. Point the mouse at things to learn more.`,
+        `${k("rest")} rests when nobody's around. ${k("log")}: log. ${k("look")} or the mouse: look at things. ${k("guide")}: Street Guide.`,
       ],
       [
         "SHOPS",
@@ -774,7 +781,7 @@ export class HelpScreen implements Screen {
       ],
       [
         "NIGHT",
-        "From 21:00 to 5:00 the streets are darker, crews bigger and richer, some shops shut.",
+        "Nights (21:00-5:00) are darker, with bigger, richer crews. The weather changes daily.",
       ],
       [
         "TACTICS",
@@ -811,6 +818,7 @@ export class MenuScreen implements Screen {
       "Character Sheet",
       "City Map",
       "Side Quests",
+      "Street Guide",
       "Your Jobs",
       "Settings",
       "How to Play",
@@ -837,6 +845,7 @@ export class MenuScreen implements Screen {
       else if (o === "Character Sheet") this.app.push(new CharacterScreen(this.app));
       else if (o === "City Map") this.app.push(new CityMapScreen(this.app));
       else if (o === "Side Quests") this.app.push(new QuestLogScreen(this.app));
+      else if (o === "Street Guide") this.app.push(new GuideScreen(this.app));
       else if (o === "Settings") this.app.push(new SettingsScreen(this.app));
       else if (o === "How to Play") this.app.push(new HelpScreen(this.app));
       else if (o === "Copy a bug report") {

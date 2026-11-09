@@ -97,6 +97,14 @@ Electron setup is copied from Hollowdeep.
   `stockOf` adds `ShopDef.secret` dishes. The bot and `travel` step around givers. Bosses emit
   a `scene` event once (`flags.met_<boss>`, `BOSS_SCENES`); `epilogue(g)` writes the ending.
   Save version 8 (0.7 saves upgrade).
+- **Weather** (0.9, `data/weather.ts`): `weatherOn(seed, day)` (no save state; day 1 clear),
+  `Game.weather()` turns over at dawn, `weatherHere()` is clear in `INDOOR` areas and arenas.
+  Rain: +1 knock-back in `strike`, sight -2, food heals x1.5, `v_icecream` shut. Fog: sight -4,
+  notice range 4. Heat: `buildArea(..., heat)` one group fewer, `COLD_DRINKS` double guts.
+- **Street Guide** (0.9): `s.tried` (every consumable used, in `applyConsumable`) and
+  `s.beaten` ("gang:rank", in `knockOut`); `GuideScreen` (key F). Look mode lives in
+  `PlayScreen.look` (key V). New-player tips: `renderer/src/tips.ts`, seen ids in the profile,
+  `settings.tips`; smoke tests switch them off except the `tips` scene. Save version 9.
 - **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
   picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
@@ -131,6 +139,9 @@ Electron setup is copied from Hollowdeep.
 - 0.8 with the new gang types: Normal ~10,900 / ~3.5 KOs with partners, ~12,100 solo; Easy
   ~7,900 / ~1; Hard ~10,700 / ~7 (Hard's median landed under Normal's on 6 seeds - noise, but
   watch it). All win. The bot kicks guards and never takes side quests.
+- 0.9 with weather (12 seeds each, means): Easy ~7,800 / ~1.7 KOs, Normal ~9,100 / ~4.5,
+  Normal solo ~9,200 / ~5, Hard ~11,500 / ~8.8. All win. The 0.8 "Hard under Normal" was noise
+  from 6 seeds - use 12 when comparing difficulties.
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -141,7 +152,8 @@ Electron setup is copied from Hollowdeep.
 - The browser pane's screenshots can go stale; trust `pnpm smoke` screenshots for visuals.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
 - `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, partner,
-  sheet, street, night, bus, kennel, ashgate, tailor, pawn, citymap, carnival, nightmarket, talk, questlog, scene, help, achievements, ending, arena,
+  sheet, street, night, bus, kennel, ashgate, tailor, pawn, citymap, carnival, nightmarket, talk, questlog, scene, rain, guide, gangguide, look, tips,
+  help, achievements, ending, arena,
   bout and saves (backup
   recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.

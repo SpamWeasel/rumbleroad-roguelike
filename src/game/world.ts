@@ -591,6 +591,8 @@ export function buildArea(
   night = false,
   /** A district the player holds as turf has fewer gang groups. */
   quiet = false,
+  /** A heatwave keeps a gang group in the shade. */
+  heat = false,
 ): Area {
   const d = AREAS[id];
   if (!d) throw new Error(`Unknown area ${id}`);
@@ -656,7 +658,7 @@ export function buildArea(
     start: startAt,
   };
 
-  if (!d.map && d.gang) spawnDistrictGangs(area, rng, d, night, quiet);
+  if (!d.map && d.gang) spawnDistrictGangs(area, rng, d, night, quiet, heat);
   return area;
 }
 
@@ -666,6 +668,7 @@ function spawnDistrictGangs(
   d: AreaDef,
   night: boolean,
   quiet: boolean,
+  heat: boolean,
 ): void {
   const walk = (x: number, y: number) => walkable(area.tiles[y * area.w + x]);
   const fromExits = distanceMap(area.w, area.h, walk, area.exits);
@@ -676,6 +679,7 @@ function spawnDistrictGangs(
   }
   let groups = 3 + Math.floor(d.depth / 2) + rng.int(0, 2) + (night ? NIGHT_GROUPS : 0);
   if (quiet) groups = Math.max(1, groups - TURF_QUIET);
+  if (heat) groups = Math.max(1, groups - 1);
   const taken = new Set<number>();
   for (let g = 0; g < groups && floor.length > 0; g++) {
     const center = rng.pick(floor);

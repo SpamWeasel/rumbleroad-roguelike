@@ -1,10 +1,12 @@
 import { describe, expect, it } from "vitest";
 import { ACHIEVEMENT_BY_ID } from "../src/game/data/achievements";
+import { RANKS } from "../src/game/data/enemies";
 import { ITEMS } from "../src/game/data/items";
 import { epilogue } from "../src/game/data/quests";
 import { SHOPS } from "../src/game/data/shops";
 import { STYLES } from "../src/game/data/styles";
 import { TECHNIQUES } from "../src/game/data/techniques";
+import { weatherOn } from "../src/game/data/weather";
 import { dailySeed, Game } from "../src/game/game";
 import { generateDistrict } from "../src/game/generate";
 import { distanceMap } from "../src/game/grid";
@@ -1229,5 +1231,134 @@ describe("0.8 features", () => {
     old.version = 7;
     delete old.quests;
     expect(Game.load(JSON.stringify(old)).s.quests).toEqual({});
+  });
+});
+
+describe("0.9 features", () => {
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    knockOut(e: Enemy): void;
+    strike(
+      a: unknown,
+      t: unknown,
+      raw: number,
+      o: {
+        dir: readonly [number, number];
+        verb: string;
+        sound: "punch" | "kick";
+        knock?: number;
+        sure?: boolean;
+      },
+    ): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+  /** A game whose seed gives the wanted weather on some day; returns it with the clock moved there. */
+  const gameWith = (w: string): Game => {
+    for (let seed = 1; seed < 500; seed++)
+      for (let day = 2; day < 12; day++)
+        if (weatherOn(seed, day) === w) {
+          const g = Game.create("Weather", "street", seed);
+          // Dawn of that day (the first dawn is the start of day 2's weather).
+          g.s.clock = (day - 1) * 1440 + 5 * 60 + 30 - 8 * 60;
+          return g;
+        }
+    throw new Error(`no ${w}`);
+  };
+
+  it("weather is fixed per day, clear on day one, and every kind turns up", () => {
+    expect(weatherOn(5, 1)).toBe("clear");
+    expect(weatherOn(5, 7)).toBe(weatherOn(5, 7));
+    const seen = new Set<string>();
+    for (let day = 1; day < 80; day++) seen.add(weatherOn(42, day));
+    expect([...seen].sort()).toEqual(["clear", "fog", "heat", "rain"]);
+    const g = gameWith("rain");
+    expect(g.weather()).toBe("rain");
+    // Indoors it's always clear.
+    inside(g).enterArea("subway", "<");
+    expect(g.weatherHere()).toBe("clear");
+  });
+
+  it("rain sends knock-backs further and closes the ice cream cart", () => {
+    const fly = (w: string) => {
+      const g = gameWith(w);
+      inside(g).enterArea("park", "<");
+      g.area.enemies.length = 0;
+      const p = g.player;
+      // Find a long open row.
+      for (let y = 1; y < g.area.h - 1; y++)
+        for (let x = 1; x < g.area.w - 10; x++) {
+          let ok = true;
+          for (let i = 0; i < 8; i++) if (!walkable(g.tileAt(x + i, y))) ok = false;
+          if (!ok) continue;
+          p.x = x;
+          p.y = y;
+          const e = makeGangMember(new Rng(9), "dogs", "punk", 1, x + 1, y);
+          e.hp = e.maxHp = 999;
+          g.area.enemies.push(e);
+          inside(g).strike(p, e, 1, {
+            dir: [1, 0],
+            verb: "kick",
+            sound: "kick",
+            knock: 2,
+            sure: true,
+          });
+          return e.x - (x + 1);
+        }
+      return -1;
+    };
+    expect(fly("rain")).toBe(fly("clear") + 1);
+    const g = gameWith("rain");
+    expect(g.shopOpen("v_icecream")).toBe(false);
+  });
+
+  it("fog shortens sight, and a heatwave thins out the crews", () => {
+    const fog = gameWith("fog");
+    const clear = gameWith("clear");
+    for (const g of [fog, clear]) {
+      g.s.clock += 12 * 60 - g.clock().minute; // midday
+      inside(g).enterArea("park", "<");
+      g.updateView();
+    }
+    const seen = (g: Game) => g.visible.reduce((n, v) => n + v, 0);
+    expect(seen(fog)).toBeLessThan(seen(clear));
+    const groups = (heat: boolean) => {
+      let n = 0;
+      for (let v = 1; v <= 20; v++)
+        n += buildArea("docks", 9, v, {}, false, false, heat).enemies.length;
+      return n;
+    };
+    expect(groups(true)).toBeLessThan(groups(false));
+  });
+
+  it("the Street Guide records dishes tried and gang types beaten", () => {
+    const g = Game.create("Taster", "street", 91);
+    g.player.cash = 500;
+    g.buy("rosa", "pancakes");
+    g.buy("rosa", "chili");
+    expect(g.s.tried).toEqual(expect.arrayContaining(["pancakes", "chili"]));
+    inside(g).enterArea("alleys", "<");
+    const e = makeGangMember(new Rng(3), "rats", "medic", 1, 1, 1);
+    g.area.enemies.push(e);
+    inside(g).knockOut(e);
+    expect(g.s.beaten).toContain("rats:medic");
+    expect(ACHIEVEMENT_BY_ID.fieldguide.check(g)).toBe(false);
+    g.s.beaten = Object.keys(RANKS).map((r) => `dogs:${r}`);
+    expect(ACHIEVEMENT_BY_ID.fieldguide.check(g)).toBe(true);
+    g.s.tried = Object.values(ITEMS)
+      .filter((i) => i.kind === "food")
+      .slice(0, 30)
+      .map((i) => i.id);
+    expect(ACHIEVEMENT_BY_ID.critic.check(g)).toBe(true);
+  });
+
+  it("loads saves from 0.8 with an empty Street Guide", () => {
+    const g = Game.create("Old", "street", 92);
+    const old = JSON.parse(g.save());
+    old.version = 8;
+    delete old.tried;
+    delete old.beaten;
+    const loaded = Game.load(JSON.stringify(old));
+    expect(loaded.s.tried).toEqual([]);
+    expect(loaded.s.beaten).toEqual([]);
   });
 });

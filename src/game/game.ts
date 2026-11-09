@@ -1,6 +1,15 @@
 import { C, type Color } from "./colors";
 import { BET_ODDS, CLUBS } from "./data/arena";
-import { BOSSES, GANGS, KO_BARKS, SPOT_BARKS, TRAITS, type Trait } from "./data/enemies";
+import {
+  BOSSES,
+  GANGS,
+  KO_BARKS,
+  RANKS,
+  type Rank,
+  SPOT_BARKS,
+  TRAITS,
+  type Trait,
+} from "./data/enemies";
 import { FORTUNES, ITEMS, type ItemDef } from "./data/items";
 import { BOARDS, BYSTANDERS, CLIENTS, type Job, PARCELS, RIVAL, WANTED_NAMES } from "./data/jobs";
 import { OBJECTS } from "./data/objects";
@@ -27,6 +36,7 @@ import {
   TURF_SWEEPS,
   type TurfState,
 } from "./data/turf";
+import { COLD_DRINKS, INDOOR, WEATHER, type Weather, weatherOn } from "./data/weather";
 import { computeFov, lineOfFire } from "./fov";
 import { canStep, distanceMap } from "./grid";
 import { hashSeed, Rng } from "./rng";
@@ -76,8 +86,9 @@ import {
  * Version 6 added the Kennel, Ashgate Heights and tailored gear.
  * Version 7 added turf, raids and daily runs.
  * Version 8 added side quests.
+ * Version 9 added the Street Guide (dishes tried, gang members beaten).
  */
-export const SAVE_VERSION = 8;
+export const SAVE_VERSION = 9;
 /** A turn is a minute. New games start at 8:00; night runs from 21:00 to 5:00. */
 export const DAY_START = 8 * 60;
 export const NIGHT_FROM = 21 * 60;
@@ -162,6 +173,9 @@ export interface GameState {
   tickets: number;
   /** Side quests you've taken: the step you're on, progress on it, and whether it's finished. */
   quests: Record<string, { step: number; progress: number; done: boolean }>;
+  /** Street Guide: everything you've eaten or used, and "gang:rank" for each kind you've beaten. */
+  tried: string[];
+  beaten: string[];
   /** Districts you've cleared out or hold (see data/turf.ts). */
   turf: Record<string, TurfState>;
   /** The last dawn that paid tribute and rolled for raids (days since the game began). */
@@ -233,6 +247,8 @@ export class Game {
       state.flags,
       isNightAt(DAY_START + state.turn + (state.clock ?? 0)),
       !!state.turf?.[state.areaId]?.held,
+      weatherOn(state.seed, dawnsAt(DAY_START + state.turn + (state.clock ?? 0)) + 1) === "heat" &&
+        !INDOOR.includes(state.areaId),
     );
     const snap = state.snapshot;
     if (snap && snap.id === state.areaId) {
@@ -309,6 +325,8 @@ export class Game {
       lastDawn: 0,
       tickets: 0,
       quests: {},
+      tried: [],
+      beaten: [],
     };
     const game = new Game(state);
     game.placeAtArrival("@");
@@ -345,6 +363,8 @@ export class Game {
     g.s.soldOut = [...o.soldOut];
     g.s.tally = { ...o.tally };
     g.s.tickets = o.tickets ?? 0;
+    g.s.tried = [...(o.tried ?? [])];
+    g.s.beaten = [...(o.beaten ?? [])];
     g.s.rival = { ...o.rival, last: 0 };
     // Title belts stay won.
     for (const [k, v] of Object.entries(o.flags)) if (k.startsWith("title_")) g.s.flags[k] = v;
@@ -405,6 +425,12 @@ export class Game {
     if (state.version === 7) {
       // 0.7 saves: no side quests yet.
       state.quests = {};
+      state.version = 8;
+    }
+    if (state.version === 8) {
+      // 0.8 saves: an empty Street Guide.
+      state.tried = [];
+      state.beaten = [];
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -490,7 +516,19 @@ export class Game {
   }
 
   /** Whether a shop is open right now. */
+  /** Today's weather (it turns over at dawn). */
+  weather(): Weather {
+    return weatherOn(this.s.seed, dawnsAt(DAY_START + this.s.turn + (this.s.clock ?? 0)) + 1);
+  }
+
+  /** The weather where you are: always clear indoors and in fight-club rings. */
+  weatherHere(): Weather {
+    const a = this.area;
+    return a.kind === "arena" || INDOOR.includes(a.id) ? "clear" : this.weather();
+  }
+
   shopOpen(shopId: string): boolean {
+    if (shopId === "v_icecream" && this.weather() === "rain") return false;
     const hours = SHOPS[shopId]?.hours;
     if (!hours) return true;
     return hours === "night" ? this.isNight() : !this.isNight();
@@ -680,7 +718,15 @@ export class Game {
     this.stashAlly();
     s.visits[id] = (s.visits[id] ?? 0) + 1;
     const night = this.isNight();
-    this.area = buildArea(id, s.seed, s.visits[id], s.flags, night, !!s.turf[id]?.held);
+    this.area = buildArea(
+      id,
+      s.seed,
+      s.visits[id],
+      s.flags,
+      night,
+      !!s.turf[id]?.held,
+      this.weather() === "heat" && !INDOOR.includes(id),
+    );
     for (const e of this.area.enemies) {
       this.toughen(e);
       if (night && this.area.kind === "district") e.cash = Math.round(e.cash * NIGHT_CASH);
@@ -817,6 +863,9 @@ export class Game {
     } else {
       let sight = AREAS[a.id].sight ?? 10;
       if (this.isNight()) sight = Math.max(5, sight - 3) + (p.style === "runner" ? 2 : 0);
+      const w = this.weatherHere();
+      if (w === "rain") sight = Math.max(4, sight - 2);
+      else if (w === "fog") sight = Math.max(3, sight - 4);
       computeFov(
         a.w,
         a.h,
@@ -1454,19 +1503,25 @@ export class Game {
   private applyConsumable(item: ItemDef): string[] {
     const p = this.s.player;
     const notes: string[] = [];
+    this.s.tried = this.s.tried ?? [];
+    if (!this.s.tried.includes(item.id)) this.s.tried.push(item.id);
     if (item.heal && p.bleed) {
       p.bleed = undefined;
       notes.push("the bleeding stops");
     }
+    const weather = this.weather();
     if (item.heal) {
       const before = p.hp;
-      p.hp = item.heal === "full" ? this.maxHp() : Math.min(this.maxHp(), p.hp + item.heal);
+      const cozy = weather === "rain" && item.kind === "food" && !COLD_DRINKS.includes(item.id);
+      const heal = typeof item.heal === "number" && cozy ? Math.round(item.heal * 1.5) : item.heal;
+      p.hp = heal === "full" ? this.maxHp() : Math.min(this.maxHp(), p.hp + heal);
       if (p.hp > before) notes.push(`+${p.hp - before} health`);
     }
     if (item.gutsUp) {
       const before = p.guts;
-      p.guts =
-        item.gutsUp === "full" ? this.maxGuts() : Math.min(this.maxGuts(), p.guts + item.gutsUp);
+      const cold = weather === "heat" && COLD_DRINKS.includes(item.id);
+      const up = typeof item.gutsUp === "number" && cold ? item.gutsUp * 2 : item.gutsUp;
+      p.guts = up === "full" ? this.maxGuts() : Math.min(this.maxGuts(), p.guts + up);
       if (p.guts > before) notes.push(`+${p.guts - before} guts`);
     }
     if (item.stats && item.kind !== "gear") {
@@ -1700,6 +1755,7 @@ export class Game {
       target.down = Math.max(target.down, down);
       if (target !== p) (target as Enemy).windup = null;
     }
+    if (knock > 0 && this.weatherHere() === "rain") knock++;
     if (knock > 0)
       this.knockBack(
         target,
@@ -2046,6 +2102,11 @@ export class Game {
       `${e.name} is knocked out! "${this.rng.pick(KO_BARKS)}"${e.cash > 0 ? ` (+$${e.cash})` : ""}`,
       e.color,
     );
+    if (e.gang && RANKS[e.kind as Rank]) {
+      this.s.beaten = this.s.beaten ?? [];
+      const kind = `${e.gang}:${e.kind}`;
+      if (!this.s.beaten.includes(kind)) this.s.beaten.push(kind);
+    }
     this.jobProgress(e, at);
     this.eventProgress(e);
     this.raidProgress(e);
@@ -2154,7 +2215,7 @@ export class Game {
     const dist = cheb(e, p);
     const seen = this.visible[e.y * this.area.w + e.x] === 1;
     if (!e.awake) {
-      const notice = e.boss ? 8 : 7;
+      const notice = this.weatherHere() === "fog" ? (e.boss ? 6 : 4) : e.boss ? 8 : 7;
       if (seen && dist <= notice) {
         this.wake(e, true);
         if (e.boss) this.log(`${e.name}: ${BOSSES[e.kind].taunt}`, e.color);
@@ -2712,6 +2773,8 @@ export class Game {
     if (now <= (s.lastDawn ?? 0)) return;
     const days = Math.min(3, now - (s.lastDawn ?? 0));
     s.lastDawn = now;
+    const w = WEATHER[this.weather()];
+    this.log(w.dawn, w.color);
     const turf = s.turf ?? {};
     // Raids nobody stopped: the block is lost.
     for (const [id, t] of Object.entries(turf)) {

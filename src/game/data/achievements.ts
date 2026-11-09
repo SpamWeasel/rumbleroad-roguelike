@@ -1,5 +1,7 @@
 import type { Game } from "../game";
 import { TURF_AREAS } from "../world";
+import { RANKS } from "./enemies";
+import { ITEMS } from "./items";
 import { QUESTS } from "./quests";
 
 /**
@@ -120,6 +122,19 @@ export const ACHIEVEMENTS: Achievement[] = [
     name: "Everybody Knows Your Name",
     desc: "Finish every side quest in one game.",
     check: (g) => Object.values(g.s.quests ?? {}).filter((q) => q.done).length >= QUESTS.length,
+  },
+  {
+    id: "critic",
+    name: "Food Critic",
+    desc: "Try 30 different dishes in one game.",
+    check: (g) => (g.s.tried ?? []).filter((id) => ITEMS[id]?.kind === "food").length >= 30,
+  },
+  {
+    id: "fieldguide",
+    name: "Field Guide",
+    desc: "Knock out every kind of gang member (knife fighters, medics, riders...).",
+    check: (g) =>
+      Object.keys(RANKS).every((r) => (g.s.beaten ?? []).some((b) => b.endsWith(`:${r}`))),
   },
   {
     id: "samaritan",

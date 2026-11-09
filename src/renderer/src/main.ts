@@ -1,3 +1,4 @@
+import { weatherOn } from "../../game/data/weather";
 import { DAY_START, Game } from "../../game/game";
 import { walkable } from "../../game/tiles";
 import { App } from "./app";
@@ -8,10 +9,11 @@ import { BusScreen } from "./screens/bus";
 import { CarnivalScreen } from "./screens/carnival";
 import { CharacterScreen } from "./screens/character";
 import { CityMapScreen } from "./screens/citymap";
+import { GuideScreen } from "./screens/guide";
 import { AchievementsScreen, EndScreen, HelpScreen, startGame, TitleScreen } from "./screens/menus";
 import { QuestLogScreen, SceneScreen, TalkScreen } from "./screens/quests";
 import { ShopScreen } from "./screens/shop";
-import { loadSettings } from "./settings";
+import { loadSettings, settings } from "./settings";
 import { listSlots, readSlot, writeSlot } from "./storage";
 
 const errors: string[] = [];
@@ -42,6 +44,8 @@ async function smoke(app: App, scene: string): Promise<void> {
     original(...args);
   };
   await frames(10);
+  // Tips would pop up over every screenshot; their own scene turns them back on.
+  settings.tips = scene === "tips";
   try {
     if (scene === "saves") {
       // Two good saves, then a broken one: loading must fall back to the newest backup.
@@ -61,6 +65,7 @@ async function smoke(app: App, scene: string): Promise<void> {
       for (const code of [
         "ArrowDown",
         "Enter",
+        "ArrowDown",
         "ArrowDown",
         "ArrowDown",
         "ArrowDown",
@@ -204,6 +209,53 @@ async function smoke(app: App, scene: string): Promise<void> {
         app.push(new SceneScreen(app, "gnash"));
         for (let i = 0; i < 3; i++)
           window.dispatchEvent(new KeyboardEvent("keydown", { code: "Enter" }));
+      }
+      if (scene === "rain" || scene === "look" || scene === "tips") {
+        // Out on Rustline Alleys on a rainy afternoon.
+        const g = app.game as Game;
+        const inside = g as unknown as { enterArea(id: string, arrive: string): void };
+        let day = 2;
+        while (weatherOn(g.s.seed, day) !== "rain" && day < 60) day++;
+        g.s.clock = (day - 1) * 1440 + 14 * 60 - DAY_START - g.s.turn;
+        if (g.weather() !== "rain") errors.push("no rain day found");
+        inside.enterArea("alleys", "<");
+        g.area.lit = true;
+        g.updateView();
+        play.flush();
+        if (scene === "look") {
+          // Look at the nearest gang member with the keyboard cursor.
+          const p = g.player;
+          const e = [...g.area.enemies].sort(
+            (a, b) =>
+              Math.max(Math.abs(a.x - p.x), Math.abs(a.y - p.y)) -
+              Math.max(Math.abs(b.x - p.x), Math.abs(b.y - p.y)),
+          )[0];
+          window.dispatchEvent(new KeyboardEvent("keydown", { code: "KeyV" }));
+          const looking = play as unknown as { look: { x: number; y: number } | null };
+          if (!looking.look) errors.push("look mode did not start");
+          else if (e) looking.look = { x: e.x, y: e.y };
+        }
+      }
+      if (scene === "guide" || scene === "gangguide") {
+        const g = app.game as Game;
+        g.s.visits.harbor = 1;
+        g.s.tried = ["pancakes", "chili", "coffee", "ramen", "dumplings", "fishchips", "hotdog"];
+        g.s.beaten = [
+          "rats:punk",
+          "rats:scrapper",
+          "rats:slinger",
+          "rats:cutter",
+          "vipers:punk",
+          "vipers:medic",
+        ];
+        g.s.flags.gnash = true;
+        g.s.flags.met_mara = true;
+        app.push(new GuideScreen(app));
+        if (scene === "gangguide")
+          window.dispatchEvent(new KeyboardEvent("keydown", { code: "Tab" }));
+        else
+          for (let i = 0; i < 3; i++)
+            window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown" }));
       }
       if (scene === "citymap") {
         // Halfway through the city with some turf, one block under attack.

@@ -26,6 +26,8 @@ export const ACTIONS = [
   "sheet",
   "map",
   "quests",
+  "guide",
+  "look",
   "travelOn",
   "travelBack",
   "help",
@@ -57,6 +59,8 @@ export const ACTION_LABEL: Record<Action, string> = {
   sheet: "Character sheet",
   map: "City map",
   quests: "Side quests",
+  guide: "Street Guide",
+  look: "Look around",
   travelOn: "Walk to the next area",
   travelBack: "Walk back toward town",
   help: "Help",
@@ -99,6 +103,8 @@ export const DEFAULT_KEYS: Record<Action, string[]> = {
   sheet: ["KeyP"],
   map: ["KeyN"],
   quests: ["KeyU"],
+  guide: ["KeyF"],
+  look: ["KeyV"],
   travelOn: ["BracketRight"],
   travelBack: ["BracketLeft"],
   help: ["Slash", "F1", "KeyH"],
@@ -114,6 +120,8 @@ export interface Settings {
   textSize: "normal" | "large";
   fullscreen: boolean;
   shake: boolean;
+  /** New-player tips. */
+  tips: boolean;
   keys: Record<Action, string[]>;
 }
 
@@ -124,6 +132,7 @@ const defaults = (): Settings => ({
   textSize: "normal",
   fullscreen: false,
   shake: true,
+  tips: true,
   keys: structuredClone(DEFAULT_KEYS),
 });
 
@@ -142,6 +151,7 @@ export async function loadSettings(): Promise<void> {
       settings.textSize = saved.textSize;
     if (typeof saved.fullscreen === "boolean") settings.fullscreen = saved.fullscreen;
     if (typeof saved.shake === "boolean") settings.shake = saved.shake;
+    if (typeof saved.tips === "boolean") settings.tips = saved.tips;
     for (const a of ACTIONS) {
       const k = saved.keys?.[a];
       if (Array.isArray(k) && k.every((c) => typeof c === "string")) settings.keys[a] = k;

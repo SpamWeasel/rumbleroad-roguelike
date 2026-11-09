@@ -7,6 +7,7 @@ import { PARTNER_GLYPH, PARTNERS } from "../../../game/data/partners";
 import { QUEST_BY_ID, QUEST_GLYPH } from "../../../game/data/quests";
 import { SHOPS } from "../../../game/data/shops";
 import { TECHNIQUES } from "../../../game/data/techniques";
+import { WEATHER } from "../../../game/data/weather";
 import type { Game } from "../../../game/game";
 import { cellNoise } from "../../../game/rng";
 import { isWallLike, T, TILES, walkable } from "../../../game/tiles";
@@ -17,13 +18,15 @@ import { digitFromKey } from "../input";
 import { checkAchievements } from "../profile";
 import { addRecord } from "../records";
 import { ACTION_DIR, actionFor, keyName, settings } from "../settings";
-import type { Term } from "../term";
+import { Term } from "../term";
+import { nextTip } from "../tips";
 import { ArenaScreen } from "./arena";
 import { BoardScreen, JobsScreen } from "./board";
 import { BusScreen } from "./bus";
 import { CarnivalScreen } from "./carnival";
 import { CharacterScreen } from "./character";
 import { CityMapScreen } from "./citymap";
+import { GuideScreen } from "./guide";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
 import { QuestLogScreen, SceneScreen, TalkScreen } from "./quests";
@@ -59,6 +62,10 @@ export class PlayScreen implements Screen {
   private lights = new WeakMap<Area, Uint8Array>();
   /** The grid cell under the mouse, for the info box. */
   private mouse: { x: number; y: number } | null = null;
+  /** Look mode: a cursor on the map (map squares) that shows what's there. */
+  private look: { x: number; y: number } | null = null;
+  /** A new-player tip on show, and when it appeared. */
+  private tip: { text: string; at: number } | null = null;
   /** The hint on show and when it appeared. */
   private hintShown = { serial: 0, at: 0 };
 
@@ -83,6 +90,25 @@ export class PlayScreen implements Screen {
       return;
     }
     const action = actionFor(e.code);
+    if (this.look) {
+      const d = action ? ACTION_DIR[action] : undefined;
+      if (d) {
+        const a = g.area;
+        this.look = {
+          x: Math.max(0, Math.min(a.w - 1, this.look.x + d[0])),
+          y: Math.max(0, Math.min(a.h - 1, this.look.y + d[1])),
+        };
+      } else if (
+        action === "look" ||
+        action === "menu" ||
+        e.code === "Escape" ||
+        e.code === "Enter"
+      )
+        this.look = null;
+      return;
+    }
+    // Any key clears a tip on show.
+    this.tip = null;
     const dir = action ? ACTION_DIR[action] : undefined;
     if (dir) {
       g.move(dir[0], dir[1]);
@@ -142,6 +168,12 @@ export class PlayScreen implements Screen {
         return;
       case "jobs":
         this.app.push(new JobsScreen(this.app));
+        return;
+      case "look":
+        this.look = { x: g.player.x, y: g.player.y };
+        return;
+      case "guide":
+        this.app.push(new GuideScreen(this.app));
         return;
       case "quests":
         this.app.push(new QuestLogScreen(this.app));
@@ -262,6 +294,11 @@ export class PlayScreen implements Screen {
     }
     g.events.length = 0;
     if (impact) this.app.impact(impact);
+    const tip = nextTip(g);
+    if (tip) {
+      this.tip = { text: tip, at: now };
+      g.log(`Tip: ${tip}`, C.cyan);
+    }
     for (const a of checkAchievements(g)) {
       g.log(
         `Achievement: ${a.name}!${a.unlocks.length ? ` New style unlocked: ${a.unlocks.join(", ")}.` : ""}`,
@@ -333,6 +370,9 @@ export class PlayScreen implements Screen {
       this.flashes.some((f) => now - f.t0 < 200) ||
       g.area.enemies.some((e) => e.windup || e.stun > 0) ||
       now - this.hintShown.at < 3000 ||
+      g.weatherHere() === "rain" ||
+      (!!this.tip && now - this.tip.at < 12000) ||
+      !!this.look ||
       !!this.pending
     );
   }
@@ -345,7 +385,18 @@ export class PlayScreen implements Screen {
     this.drawSidebar(t);
     this.drawLog(t);
     this.drawHints(t, now);
-    this.drawInfoBox(t);
+    this.drawTip(t, now);
+    this.drawInfoBox(t, now);
+  }
+
+  /** A new-player tip across the top of the map for a while (any key clears it). */
+  private drawTip(t: Term, now: number): void {
+    if (!this.tip || now - this.tip.at > 12000 || this.app.top() !== this) return;
+    const lines = Term.wrap(this.tip.text, MAP_W - 10);
+    const w = Math.max(...lines.map((l) => l.length)) + 6;
+    const x = Math.floor((MAP_W - w) / 2);
+    t.box(x, 0, w, lines.length + 2, C.cyan, "Tip", C.cyan);
+    lines.forEach((l, i) => t.text(x + 3, 1 + i, l, C.light));
   }
 
   private camera(): void {
@@ -418,6 +469,8 @@ export class PlayScreen implements Screen {
     const tileAt = (x: number, y: number) =>
       x < 0 || y < 0 || x >= a.w || y >= a.h ? T.VOID : a.tiles[y * a.w + x];
     const blink = Math.floor(now / 250) % 2 === 0;
+    const weather = g.weatherHere();
+    const rainTick = Math.floor(now / 110);
 
     for (let sy = 0; sy < MAP_H; sy++) {
       for (let sx = 0; sx < MAP_W; sx++) {
@@ -490,6 +543,22 @@ export class PlayScreen implements Screen {
         if (vis && light && !light[i] && !sign) {
           fg = shade(fg, 0.5);
           bg = shade(bg, 0.45);
+        }
+        if (vis && weather === "fog") {
+          const far = Math.max(Math.abs(mx - p.x), Math.abs(my - p.y));
+          if (far > 2) {
+            const f = Math.max(0.35, 1 - (far - 2) * 0.18);
+            fg = shade(fg, f);
+            bg = shade(bg, Math.max(0.5, f));
+          }
+        } else if (
+          vis &&
+          weather === "rain" &&
+          walkable(tid) &&
+          cellNoise(mx, my, rainTick) < 0.05
+        ) {
+          ch = cellNoise(mx, my, rainTick + 7) < 0.5 ? "'" : ",";
+          fg = C.cyan;
         }
         t.put(sx, sy, ch, fg, bg);
       }
@@ -603,11 +672,14 @@ export class PlayScreen implements Screen {
     const mode = g.s.mode === "permadeath" ? "PERMADEATH" : "";
     if (mode) t.text(x + SIDE_W - mode.length - 1, y, mode, C.red);
     y++;
-    t.text(x + 1, y, g.area.name, C.cyan, undefined, x + SIDE_W - 13);
+    t.text(x + 1, y, g.area.name, C.cyan, undefined, x + SIDE_W - 15);
     const clock = g.clock();
     const hhmm = `${String(Math.floor(clock.minute / 60)).padStart(2, "0")}:${String(clock.minute % 60).padStart(2, "0")}`;
     const when = `Day ${clock.day} ${hhmm}${clock.night ? "☾" : "☼"}`;
-    t.text(x + SIDE_W - when.length - 1, y++, when, clock.night ? C.blue : C.yellow);
+    const wx = WEATHER[g.weather()];
+    t.text(x + SIDE_W - when.length - 1, y, when, clock.night ? C.blue : C.yellow);
+    if (wx.icon) t.text(x + SIDE_W - when.length - 3, y, wx.icon, wx.color);
+    y++;
     line();
     bar(
       t,
@@ -817,8 +889,14 @@ export class PlayScreen implements Screen {
   }
 
   /** What's under the mouse, in a small box by the pointer. */
-  private drawInfoBox(t: Term): void {
-    const m = this.mouse;
+  private drawInfoBox(t: Term, now: number): void {
+    const m = this.look ? { x: this.look.x - this.camX, y: this.look.y - this.camY } : this.mouse;
+    if (this.look && m && m.x >= 0 && m.y >= 0 && m.x < MAP_W && m.y < MAP_H) {
+      // The look cursor blinks over the square.
+      if (Math.floor(now / 300) % 2 === 0) t.setBg(m.x, m.y, "#6a5a10");
+      const hint = "Look: move the cursor   Esc done";
+      t.text(Math.floor((MAP_W - hint.length) / 2), MAP_H - 1, hint, C.yellow, C.black);
+    }
     if (!m || m.x >= MAP_W || m.y >= MAP_H || this.app.top() !== this) return;
     const lines = this.describeAt(m.x + this.camX, m.y + this.camY);
     if (lines.length === 0) return;
