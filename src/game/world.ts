@@ -8,6 +8,7 @@ import {
   LANTERN,
   LIGHTHOUSE,
   LOBBY,
+  LOT,
   MAPLE,
   NEON,
   PIER,
@@ -357,6 +358,17 @@ for (const [id, name] of [
   });
 }
 
+def({
+  id: "lot",
+  name: "The Midnight Lot",
+  kind: "arena",
+  depth: 1,
+  map: LOT,
+  exits: {},
+  intro:
+    "The Midnight Lot. Sodium lights buzz over cracked asphalt. Engines rev in the dark. They're coming.",
+});
+
 export const START_AREA = "maple";
 
 /** Random street districts with a gang: the ones that can become your turf. */
@@ -574,7 +586,7 @@ export function makeBoss(bossId: string, x: number, y: number): Enemy {
   };
 }
 
-function pickRank(rng: Rng, depth: number): Rank {
+export function pickRank(rng: Rng, depth: number): Rank {
   return rng.weighted<Rank>([
     ["punk", 40],
     ["scrapper", 22],

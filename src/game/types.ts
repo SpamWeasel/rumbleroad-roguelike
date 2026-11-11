@@ -251,7 +251,9 @@ export type GameEvent =
   /** You walked into someone with a side quest. */
   | { type: "talk"; quest: string }
   /** A boss spotted you for the first time: play their scene. */
-  | { type: "scene"; boss: string };
+  | { type: "scene"; boss: string }
+  /** Arcade Mode: a wave is beaten, time to pick an upgrade. */
+  | { type: "arcade" };
 
 export type SoundId =
   | "punch"

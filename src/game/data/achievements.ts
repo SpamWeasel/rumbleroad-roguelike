@@ -167,6 +167,18 @@ export const ACHIEVEMENTS: Achievement[] = [
     check: (g) => (g.s.tally.bestStreak ?? 0) >= 4,
   },
   {
+    id: "coinop",
+    name: "Insert Coin",
+    desc: "Clear 10 waves in Arcade Mode.",
+    check: (g) => (g.s.arcade?.cleared ?? 0) >= 10,
+  },
+  {
+    id: "arcadelegend",
+    name: "Arcade Legend",
+    desc: "Clear 25 waves in Arcade Mode (that's Duke Varga, too).",
+    check: (g) => (g.s.arcade?.cleared ?? 0) >= 25,
+  },
+  {
     id: "samaritan",
     name: "Good Samaritan",
     desc: "Rescue 5 people from shakedowns.",

@@ -99,7 +99,7 @@ export class App {
     window.rumblerow?.onClosing(() => this.save());
     window.addEventListener("beforeunload", () => {
       const g = this.game;
-      if (!window.rumblerow && g && g.s.over !== "dead")
+      if (!window.rumblerow && g && g.s.over !== "dead" && !g.s.arcade)
         writeSlotNow(this.slot, g.summary(), g.save());
     });
     if (settings.fullscreen) void window.rumblerow?.setFullscreen(true);
@@ -192,7 +192,8 @@ export class App {
   /** Saves the current game into its slot (not after a permadeath ending). */
   async save(): Promise<void> {
     const g = this.game;
-    if (!g || g.s.over === "dead") return;
+    // Arcade runs aren't saved; a knocked-out permadeath game is gone.
+    if (!g || g.s.over === "dead" || g.s.arcade) return;
     this.savedTurn = g.s.turn;
     await writeSlot(this.slot, g.summary(), g.save());
   }
@@ -204,6 +205,7 @@ export class App {
   }
 
   async forget(): Promise<void> {
+    if (this.game?.s.arcade) return;
     await deleteSlot(this.slot);
   }
 

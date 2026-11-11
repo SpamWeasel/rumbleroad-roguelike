@@ -520,3 +520,106 @@ function shop(g: Game, r: RunReport): void {
   }
   void STAT_KEYS;
 }
+
+/** How an Arcade run went. */
+export interface ArcadeReport {
+  seed: number;
+  cleared: number;
+  turns: number;
+  picks: string[];
+  game: Game;
+}
+
+/**
+ * Plays an Arcade run the simple way: heal when low, throw whoever it's carrying, fight what's
+ * next to it, otherwise walk at the nearest gang member. Upgrades: a friend while it has fewer
+ * than two, then the stat it values most, techniques when it has none.
+ */
+export function playArcade(
+  seed: number,
+  style: StyleId = "allround",
+  maxTurns = 20000,
+): ArcadeReport {
+  const g = Game.createArcade("Bot", seed, style);
+  const picks: string[] = [];
+  const score = (id: string): number => {
+    const [kind, what] = id.split(":");
+    const friends = g.area.enemies.filter((e) => e.crew).length;
+    if (kind === "friend") return friends < 2 ? 10 : 2;
+    if (kind === "heal") return g.player.hp < g.maxHp() * 0.5 ? 9 : 1;
+    if (kind === "tech") return g.player.techniques.length < 2 ? 7 : 3;
+    if (kind === "gear") return 6;
+    if (kind === "montage") return 6;
+    if (kind === "salts") return 4;
+    if (kind === "snacks") return 3;
+    return 3 + WEIGHT[what as AnyStat] * 3;
+  };
+  let stuck = 0;
+  while (!g.s.over && g.s.turn < maxTurns) {
+    const offers = g.s.arcade?.offers;
+    if (offers) {
+      const best = offers.reduce((b, id, i) => (score(id) > score(offers[b]) ? i : b), 0);
+      picks.push(offers[best]);
+      g.pickArcade(best);
+      continue;
+    }
+    const p = g.player;
+    const turn = g.s.turn;
+    const adj = g.adjacentEnemies();
+    if (p.hp < g.maxHp() * 0.35) {
+      const idx = p.pockets.findIndex((id) => ITEMS[id].heal);
+      if (idx >= 0) {
+        g.useItem(idx);
+        continue;
+      }
+    }
+    if (p.carry) {
+      const t = g.visibleEnemies()[0];
+      const d: Dir = t ? [Math.sign(t.x - p.x), Math.sign(t.y - p.y)] : [1, 0];
+      if (!g.throwHeld(d[0] || d[1] ? d : [1, 0])) g.grab();
+    } else if (adj.length) {
+      const target = adj.reduce((a, b) => (a.enemy.hp <= b.enemy.hp ? a : b));
+      const techs = p.techniques
+        .map((id, i) => ({ t: TECHNIQUES[id], i }))
+        .filter(({ t }) => p.guts >= t.guts && t.id !== "counter" && t.id !== "toss");
+      const around = techs.find(({ t }) => t.aim === "around");
+      const aimed = techs.find(({ t }) => t.aim === "dir");
+      if (adj.length >= 2 && around) g.technique(around.i, null);
+      else if (aimed && (target.enemy.hp > 15 || target.enemy.boss))
+        g.technique(aimed.i, target.dir);
+      else if (target.enemy.ai === "guard" || g.stat("kick") > g.stat("punch") + 2)
+        g.kick(target.dir);
+      else g.punch(target.dir);
+    } else {
+      // Walk at the nearest gang member (or wait for them to come).
+      const a = g.area;
+      const foes = a.enemies.filter((e) => !e.ally);
+      const dist = distanceMap(a.w, a.h, (x, y) => walkable(g.tileAt(x, y)), foes, 120);
+      let best: Dir | null = null;
+      let bd = dist[p.y * a.w + p.x];
+      if (bd < 0) bd = 9999;
+      for (const d of DIRS8) {
+        const x = p.x + d[0];
+        const y = p.y + d[1];
+        if (x < 0 || y < 0 || x >= a.w || y >= a.h) continue;
+        const v = dist[y * a.w + x];
+        if (v < 0 || v >= bd || a.enemies.some((e) => e.x === x && e.y === y && e.ally)) continue;
+        if (!canStep((xx, yy) => walkable(g.tileAt(xx, yy)), p.x, p.y, d[0], d[1])) continue;
+        best = d;
+        bd = v;
+      }
+      if (!best || !g.move(best[0], best[1])) g.guard();
+    }
+    if (g.s.turn === turn && ++stuck > 3) {
+      g.wait();
+      stuck = 0;
+    }
+  }
+  return {
+    seed,
+    cleared: g.s.arcade?.cleared ?? 0,
+    turns: g.s.turn,
+    picks,
+    game: g,
+  };
+}

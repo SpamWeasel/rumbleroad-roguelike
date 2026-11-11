@@ -119,6 +119,17 @@ Electron setup is copied from Hollowdeep.
   foe, wall or hazard. `CARRY_TURNS` before they wriggle free; a hit makes you drop them.
   KO streaks: `koStreak` counts only the player's knock-outs (`credit`, set per `strike`).
   Save version 10 (0.9 saves inside the tower get `flags.voss`).
+- **Arcade Mode** (0.11, `data/arcade.ts`): `Game.createArcade(name, seed, style, daily?)` makes
+  a permadeath game in the `lot` (an arena-kind map with no exits) with `s.arcade` set and
+  stats x`ARCADE_BOOST`. `startArcadeWave` spawns `arcadeWave(n)` (+ a boss every
+  `ARCADE_BOSS_EVERY`, softened by `arcadeBossScale`); `checkArcade` (end of `endAction`) rests
+  you and rolls three offers ("stat:punch", "tech:...", "friend:<partner>", "gear:...",
+  "montage", "salts", "snacks", "heal"); `pickArcade(i)` applies one and sends the next wave.
+  Arcade bosses set no campaign flags; a knock-out ends the run (`playerDown`). Friends use
+  `spawnCrew` like the Rumble. The renderer never saves Arcade runs (`ARCADE_SLOT` = -1,
+  `App.save`/`forget` skip them); records store `arcade` (waves cleared). Screens:
+  `ArcadeSetupScreen` (title), `ArcadePickScreen` (event "arcade"). Bot: `playArcade` in
+  tests/bot.ts, `scripts/arcade.mts [runs] [style]`.
 - **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
   picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
@@ -160,6 +171,8 @@ Electron setup is copied from Hollowdeep.
   solo ~11,700 / ~4.4, Hard ~11,900 / ~8.9. All win. The bot brings only the regulars and its
   partner (no quests), and about half its runs retreat from the plaza at least once (100-200
   turns when it pushes straight through, 1,000-3,700 with a shopping trip). Waves 8/9/6 + Voss.
+- 0.11 Arcade (12 seeds, `arcade.mts`): the simple bot clears a median of 9 waves (best 11,
+  worst 6), ~200-430 turns a run. Mara on wave 10 was a wall until Arcade bosses got 0.8x.
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -171,7 +184,7 @@ Electron setup is copied from Hollowdeep.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
 - `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, partner,
   sheet, street, night, bus, kennel, ashgate, tailor, pawn, citymap, carnival, nightmarket, talk, questlog, scene, rain, guide, gangguide, look, tips,
-  intro, rollcall, rumble, carry, help, achievements, ending, arena,
+  intro, rollcall, rumble, carry, arcadesetup, arcade, arcadepick, arcadeover, help, achievements, ending, arena,
   bout and saves (backup
   recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.

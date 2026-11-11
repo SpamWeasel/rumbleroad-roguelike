@@ -14,7 +14,7 @@ import { Rng } from "../src/game/rng";
 import { T, walkable } from "../src/game/tiles";
 import { DIRS8, type Enemy, STAT_KEYS } from "../src/game/types";
 import { AREAS, buildArea, makeGangMember, parseStatic } from "../src/game/world";
-import { playGame } from "./bot";
+import { playArcade, playGame } from "./bot";
 
 describe("data", () => {
   it("every shop sells real items and teaches real techniques", () => {
@@ -1645,5 +1645,103 @@ describe("0.10 features", () => {
     const h = champion(112);
     h.player.carry = makeGangMember(new Rng(6), "rats", "punk", 1, 0, 0);
     expect(Game.load(h.save()).player.carry?.title).toBe("Rat Punk");
+  });
+});
+
+describe("0.11 Arcade Mode", () => {
+  type Internals = { knockOut(e: Enemy): void; playerDown(): void };
+  const inside = (g: Game) => g as unknown as Internals;
+  const clearWave = (g: Game) => {
+    for (const e of [...g.area.enemies]) if (!e.ally) inside(g).knockOut(e);
+    g.wait();
+  };
+
+  it("a run starts in the Midnight Lot with doubled stats and wave 1 coming", () => {
+    const g = Game.createArcade("Ace", 201, "boxer");
+    expect(g.area.id).toBe("lot");
+    expect(g.player.base.punch).toBe(STYLES.boxer.base.punch * 2);
+    expect(g.player.hp).toBe(g.maxHp());
+    expect(g.arcadeInfo()).toEqual({ wave: 1, cleared: 0, foes: 3, friends: 0 });
+    expect(g.area.enemies.every((e) => e.awake && e.cash === 0)).toBe(true);
+    expect(g.player.pockets).toEqual(["bandage", "bandage"]);
+  });
+
+  it("clearing a wave offers three different upgrades, and picking one sends the next wave", () => {
+    const g = Game.createArcade("Ace", 202, "allround");
+    clearWave(g);
+    const offers = g.s.arcade?.offers ?? [];
+    expect(offers).toHaveLength(3);
+    expect(new Set(offers).size).toBe(3);
+    expect(g.events.some((e) => e.type === "arcade")).toBe(true);
+    expect(g.s.arcade?.cleared).toBe(1);
+    for (const id of offers) expect(g.arcadeOffer(id).name.length).toBeGreaterThan(3);
+    g.s.arcade = {
+      ...(g.s.arcade as { wave: number; cleared: number }),
+      offers: ["stat:punch", "friend:ruby", "salts"],
+    };
+    const punch = g.player.base.punch;
+    expect(g.pickArcade(0).ok).toBe(true);
+    expect(g.player.base.punch).toBe(punch + 4);
+    expect(g.arcadeInfo()?.wave).toBe(2);
+    expect(g.s.arcade?.offers).toBeNull();
+    // A friend joins next time.
+    clearWave(g);
+    (g.s.arcade as { offers: string[] }).offers = ["friend:ruby", "salts", "heal"];
+    g.pickArcade(0);
+    expect(g.area.enemies.find((e) => e.crew === "ruby")?.name).toBe("Ruby Kincaid");
+    expect(g.arcadeInfo()?.friends).toBe(1);
+  });
+
+  it("a boss leads every fifth wave, and beating one doesn't touch the campaign", () => {
+    const g = Game.createArcade("Ace", 203, "allround");
+    for (let w = 1; w < 5; w++) {
+      clearWave(g);
+      g.pickArcade(0);
+    }
+    expect(g.arcadeInfo()?.wave).toBe(5);
+    const boss = g.area.enemies.find((e) => e.boss) as Enemy;
+    expect(boss.kind).toBe("gnash");
+    inside(g).knockOut(boss);
+    expect(g.s.flags.gnash).toBeUndefined();
+    // Even Duke Varga, five bosses in, doesn't end the game.
+    g.s.arcade = { wave: 24, cleared: 24, offers: null };
+    for (const e of [...g.area.enemies]) if (!e.ally) inside(g).knockOut(e);
+    g.wait();
+    g.pickArcade(0);
+    const varga = g.area.enemies.find((e) => e.boss) as Enemy;
+    expect(varga.kind).toBe("varga");
+    inside(g).knockOut(varga);
+    expect(g.s.over).toBeNull();
+    expect(g.s.flags.varga).toBeUndefined();
+  });
+
+  it("one life: a knock-out ends the run unless smelling salts save you", () => {
+    const g = Game.createArcade("Ace", 204, "allround");
+    g.player.pockets = ["salts"];
+    g.player.hp = 0;
+    inside(g).playerDown();
+    expect(g.s.over).toBeNull();
+    expect(g.player.hp).toBeGreaterThan(0);
+    g.player.hp = 0;
+    inside(g).playerDown();
+    expect(g.s.over).toBe("dead");
+    expect(g.area.id).toBe("lot");
+    expect(ACHIEVEMENT_BY_ID.coinop.check(g)).toBe(false);
+    g.s.arcade = { wave: 11, cleared: 10, offers: null };
+    expect(ACHIEVEMENT_BY_ID.coinop.check(g)).toBe(true);
+  });
+
+  it("daily Arcade runs start the same for everyone", () => {
+    const a = Game.createArcade("A", dailySeed("arcade-2026-11-11"), "allround", "2026-11-11");
+    const b = Game.createArcade("B", dailySeed("arcade-2026-11-11"), "allround", "2026-11-11");
+    const where = (g: Game) => g.area.enemies.map((e) => `${e.kind}@${e.x},${e.y}`).join();
+    expect(where(a)).toBe(where(b));
+    expect(a.s.daily).toBe("2026-11-11");
+  });
+
+  it("the Arcade bot clears several waves without errors", { timeout: 120_000 }, () => {
+    const r = playArcade(2000);
+    expect(r.cleared).toBeGreaterThanOrEqual(4);
+    expect(r.game.s.over).toBe("dead");
   });
 });

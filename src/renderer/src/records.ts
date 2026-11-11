@@ -14,6 +14,8 @@ export interface RunRecord {
   date: string;
   /** A daily run's date. */
   daily?: string;
+  /** Arcade Mode: waves cleared. */
+  arcade?: number;
 }
 
 export async function loadRecords(): Promise<RunRecord[]> {
@@ -37,16 +39,19 @@ export async function addRecord(game: Game, result: "won" | "dead"): Promise<voi
     turns: game.s.turn,
     date: new Date().toISOString().slice(0, 10),
     daily: game.s.daily,
+    arcade: game.s.arcade?.cleared,
   });
-  // Wins first (fastest first), then the rest by how many gang members they beat.
+  // Wins first (fastest first), then Arcade runs (most waves first), then the rest by how many
+  // gang members they beat.
+  const rank = (r: RunRecord) => (r.result === "won" ? 0 : r.arcade !== undefined ? 1 : 2);
   list.sort((a, b) =>
-    a.result === b.result
-      ? a.result === "won"
+    rank(a) !== rank(b)
+      ? rank(a) - rank(b)
+      : rank(a) === 0
         ? a.turns - b.turns
-        : b.kos - a.kos
-      : a.result === "won"
-        ? -1
-        : 1,
+        : rank(a) === 1
+          ? (b.arcade ?? 0) - (a.arcade ?? 0)
+          : b.kos - a.kos,
   );
   await writeData("records", JSON.stringify(list.slice(0, 50)));
 }

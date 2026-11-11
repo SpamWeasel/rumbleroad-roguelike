@@ -1,4 +1,15 @@
 import { C, type Color } from "./colors";
+import {
+  ARCADE_AREA,
+  ARCADE_BOOST,
+  ARCADE_BOSS_EVERY,
+  ARCADE_BOSSES,
+  ARCADE_FRIENDS,
+  ARCADE_REST,
+  arcadeBossScale,
+  arcadeStatGain,
+  arcadeWave,
+} from "./data/arcade";
 import { BET_ODDS, CLUBS } from "./data/arena";
 import {
   BOSSES,
@@ -75,6 +86,7 @@ import {
   makeBoss,
   makeGangMember,
   newEnemyId,
+  pickRank,
   reserveEnemyIds,
   START_AREA,
   TURF_AREAS,
@@ -191,6 +203,11 @@ export interface GameState {
    * and the extra gang members per wave a big crew brings out.
    */
   rumble?: { wave: number; crew: number; bonus: number } | null;
+  /**
+   * Arcade Mode (data/arcade.ts): the wave you're on, the best wave cleared, and the three
+   * upgrades on offer while you choose one (null while fighting).
+   */
+  arcade?: { wave: number; cleared: number; offers: string[] | null };
   /** Street Guide: everything you've eaten or used, and "gang:rank" for each kind you've beaten. */
   tried: string[];
   beaten: string[];
@@ -861,6 +878,7 @@ export class Game {
     }
     this.checkBout();
     this.checkRumble();
+    this.checkArcade();
     for (const { def, step } of this.activeSteps())
       if (step.kind === "check" && step.test(this)) this.advanceQuest(def.id);
   }
@@ -901,7 +919,8 @@ export class Game {
     const pal = this.ally();
     if (pal && p.regenClock % 6 === 0) pal.hp = Math.min(pal.maxHp, pal.hp + 1);
     // In the Rumble the gangs go for whoever's nearest, not just you.
-    const targets = this.rumbleOn() ? [p, ...this.area.enemies.filter((e) => e.ally)] : [p];
+    const targets =
+      this.rumbleOn() || this.s.arcade ? [p, ...this.area.enemies.filter((e) => e.ally)] : [p];
     // The plaza is wide: let everyone find each other from end to end.
     this.chase = distanceMap(
       this.area.w,
@@ -1823,7 +1842,7 @@ export class Game {
     const byPlayer = attacker === p;
     const friendly = byPlayer || !!(attacker as Enemy).ally;
     // In the Rumble, fights that don't involve you stay out of the log (and off the speakers).
-    const quiet = !byPlayer && target !== p && this.rumbleOn();
+    const quiet = !byPlayer && target !== p && (this.rumbleOn() || !!this.s.arcade);
     // Someone already knocked out can't keep swinging (a counter can drop them mid-flurry).
     if (!byPlayer && attacker.hp <= 0) return;
     if (target === p && !friendly && cheb(attacker, p) === 1 && p.buffs.some((b) => b.counter)) {
@@ -2323,6 +2342,13 @@ export class Game {
     // Whatever they were holding clatters to the ground.
     if (e.held && this.walk(at.x, at.y))
       this.area.items.push({ kind: "object", x: at.x, y: at.y, id: e.held });
+    if (e.boss && this.s.arcade) {
+      const b = BOSSES[e.kind];
+      this.log(`${b.name} goes down! ${b.defeat}`, b.color);
+      this.pop(e.x, e.y, "KO", e.color);
+      this.koStreak();
+      return;
+    }
     if (e.boss) {
       const b = BOSSES[e.kind];
       this.log(`${b.name} goes down! ${b.defeat}`, b.color);
@@ -2397,6 +2423,17 @@ export class Game {
         C.yellow,
       );
       this.pop(p.x, p.y, "REVIVE", C.yellow);
+      return;
+    }
+    if (this.s.arcade) {
+      p.hp = 0;
+      p.carry = null;
+      this.log(
+        `You're knocked out cold. Game over! You cleared ${this.s.arcade.cleared} wave${this.s.arcade.cleared === 1 ? "" : "s"}.`,
+        C.red,
+      );
+      this.s.over = "dead";
+      this.events.push({ type: "dead" });
       return;
     }
     if (this.s.mode === "permadeath") {
@@ -3849,6 +3886,236 @@ export class Game {
   }
 
   // -------------------------------------------------------------------------------------------
+  // Arcade Mode (data/arcade.ts)
+
+  /** A fresh Arcade run: your style's stats doubled, two bandages, and wave 1 already coming. */
+  static createArcade(name: string, seed: number, styleId: StyleId, daily?: string): Game {
+    const g = Game.create(name, "permadeath", seed, "normal", styleId);
+    const s = g.s;
+    const p = s.player;
+    s.arcade = { wave: 0, cleared: 0, offers: null };
+    if (daily) s.daily = daily;
+    for (const k of ALL_STATS) p.base[k] = Math.round(p.base[k] * ARCADE_BOOST);
+    p.cash = 0;
+    p.pockets = ["bandage", "bandage"];
+    s.log = [];
+    g.enterArea(ARCADE_AREA, "@");
+    p.hp = g.maxHp();
+    p.guts = g.maxGuts();
+    g.startArcadeWave();
+    return g;
+  }
+
+  /** The next wave pours into the lot (a boss leads every fifth). */
+  private startArcadeWave(): void {
+    const ar = this.s.arcade;
+    if (!ar) return;
+    ar.wave++;
+    const n = ar.wave;
+    const a = this.area;
+    const p = this.s.player;
+    const w = arcadeWave(n);
+    const bossId =
+      n % ARCADE_BOSS_EVERY === 0
+        ? ARCADE_BOSSES[(n / ARCADE_BOSS_EVERY - 1) % ARCADE_BOSSES.length]
+        : null;
+    const spots = this.farSpots(8);
+    if (spots.length < w.count + 1) spots.push(...this.farSpots(3));
+    if (bossId) {
+      const at = spots.shift();
+      if (at) {
+        // Each boss calls for backup fresh every time they turn up.
+        for (const f of [`${bossId}_called`, `${bossId}_called2`]) delete this.s.flags[f];
+        this.s.flags[`met_${bossId}`] = true;
+        const boss = makeBoss(bossId, at.x, at.y);
+        const scale = arcadeBossScale(n);
+        boss.maxHp = Math.round(boss.maxHp * scale);
+        boss.hp = boss.maxHp;
+        for (const k of STAT_KEYS) boss.stats[k] = Math.round(boss.stats[k] * scale);
+        boss.awake = true;
+        boss.cash = 0;
+        boss.time = p.time + 80;
+        a.enemies.push(boss);
+      }
+    }
+    const count = bossId ? Math.max(1, w.count - 3) : w.count;
+    for (let i = 0; i < count; i++) {
+      const at = spots.shift();
+      if (!at) break;
+      // Mostly the gang for this depth, with the odd stray from elsewhere.
+      const gang = this.rng.chance(0.75)
+        ? w.gang
+        : this.rng.pick(["rats", "vipers", "dogs", "crowns"]);
+      const e = makeGangMember(this.rng, gang, pickRank(this.rng, w.depth), w.depth, at.x, at.y);
+      this.toughen(e);
+      e.awake = true;
+      e.cash = 0;
+      e.time = p.time + this.rng.int(30, 120);
+      a.enemies.push(e);
+    }
+    this.log(
+      bossId
+        ? `WAVE ${n}! ${BOSSES[bossId].name} rolls into the lot with backup!`
+        : `WAVE ${n}! ${count} ${GANGS[w.gang].name} come over the fence.`,
+      bossId ? C.red : C.yellow,
+    );
+    this.sound("door");
+  }
+
+  /** Every gang member down: rest a little, then pick an upgrade. */
+  private checkArcade(): void {
+    const ar = this.s.arcade;
+    if (!ar || ar.offers || this.s.over) return;
+    if (this.everyone().some((e) => !e.ally)) return;
+    ar.cleared = ar.wave;
+    const p = this.s.player;
+    p.hp = Math.min(this.maxHp(), p.hp + Math.round(this.maxHp() * ARCADE_REST));
+    p.guts = this.maxGuts();
+    p.bleed = undefined;
+    for (const e of this.area.enemies)
+      if (e.ally) e.hp = Math.min(e.maxHp, e.hp + Math.round(e.maxHp * (ARCADE_REST + 0.1)));
+    ar.offers = this.rollArcadeOffers();
+    this.log(`Wave ${ar.wave} cleared! Catch your breath and pick an upgrade.`, C.lime);
+    this.sound("levelup");
+    this.events.push({ type: "arcade" });
+  }
+
+  /** Three different upgrades to choose from. */
+  private rollArcadeOffers(): string[] {
+    const p = this.s.player;
+    const pool: [string, number][] = [];
+    for (const k of ALL_STATS) pool.push([`stat:${k}`, 10]);
+    pool.push(["montage", 5]);
+    for (const id of Object.keys(TECHNIQUES))
+      if (!p.techniques.includes(id)) pool.push([`tech:${id}`, 3]);
+    const friends = this.area.enemies.filter((e) => e.crew);
+    if (friends.length < ARCADE_FRIENDS)
+      for (const id of Object.keys(PARTNERS))
+        if (!friends.some((f) => f.crew === id)) pool.push([`friend:${id}`, 4]);
+    // Gear that beats what you wear, from any shop (dearer pieces later on).
+    const budget = 120 + 90 * (this.s.arcade?.wave ?? 1);
+    const score = (id: string | undefined) =>
+      id ? Object.values(ITEMS[id].stats ?? {}).reduce((n, v) => n + (v ?? 0), 0) : 0;
+    for (const it of Object.values(ITEMS))
+      if (
+        it.kind === "gear" &&
+        it.slot &&
+        it.price <= budget &&
+        score(it.id) > score(p.gear[it.slot]) + 2
+      )
+        pool.push([`gear:${it.id}`, 1]);
+    pool.push(["salts", 3], ["snacks", 4], ["heal", 3]);
+    const out: string[] = [];
+    while (out.length < 3 && pool.length) {
+      const pick = this.rng.weighted(pool);
+      out.push(pick);
+      pool.splice(
+        pool.findIndex(([id]) => id === pick),
+        1,
+      );
+    }
+    return out;
+  }
+
+  /** What an upgrade does, for the choice screen. */
+  arcadeOffer(id: string): { name: string; desc: string } {
+    const n = this.s.arcade?.wave ?? 1;
+    const gain = arcadeStatGain(n);
+    const [kind, what] = id.split(":");
+    if (kind === "stat") {
+      const k = what as AnyStat;
+      const amount = k === "stamina" ? gain * 6 : gain;
+      return {
+        name: `+${amount} ${STAT_LABEL[k]}`,
+        desc: `Train hard between waves. (${STAT_LABEL[k]} ${this.s.player.base[k]} -> ${this.s.player.base[k] + amount})`,
+      };
+    }
+    if (kind === "montage")
+      return {
+        name: "Training Montage",
+        desc: `+${Math.ceil(gain / 2)} to every stat. Cue the music.`,
+      };
+    if (kind === "tech") {
+      const t = TECHNIQUES[what];
+      return { name: `Learn ${t.name}`, desc: t.desc };
+    }
+    if (kind === "friend") {
+      const f = PARTNERS[what];
+      return {
+        name: `${f.name} joins you`,
+        desc: `${f.title}. Fights beside you for the rest of the run.`,
+      };
+    }
+    if (kind === "gear") {
+      const it = ITEMS[what];
+      return { name: it.name, desc: `Wear it: ${describeBonus(it.stats ?? {})}.` };
+    }
+    if (kind === "salts")
+      return { name: "Smelling Salts", desc: "Snaps you awake once if you get knocked out." };
+    if (kind === "snacks")
+      return { name: "Snack Run", desc: "Two First Aid Kits for your pockets." };
+    return { name: "Second Wind", desc: "Full health and guts, and your friends patched up too." };
+  }
+
+  /** Takes one of the upgrades on offer (by position) and sends in the next wave. */
+  pickArcade(index: number): { ok: boolean; message: string } {
+    const ar = this.s.arcade;
+    const id = ar?.offers?.[index];
+    if (!ar || !id) return { ok: false, message: "" };
+    const p = this.s.player;
+    const n = ar.wave;
+    const gain = arcadeStatGain(n);
+    const [kind, what] = id.split(":");
+    const { name } = this.arcadeOffer(id);
+    if (kind === "stat") {
+      const k = what as AnyStat;
+      const amount = k === "stamina" ? gain * 6 : gain;
+      p.base[k] = Math.min(k === "stamina" ? STAMINA_CAP : STAT_CAP, p.base[k] + amount);
+      if (k === "stamina") p.hp += amount;
+    } else if (kind === "montage") {
+      for (const k of STAT_KEYS) p.base[k] = Math.min(STAT_CAP, p.base[k] + Math.ceil(gain / 2));
+      p.base.stamina = Math.min(STAMINA_CAP, p.base.stamina + Math.ceil(gain / 2) * 3);
+    } else if (kind === "tech") {
+      if (!p.techniques.includes(what)) p.techniques.push(what);
+    } else if (kind === "friend") {
+      const f = PARTNERS[what];
+      const spot = this.spotsNear(p, 1)[0] ?? this.spotsNear(p, 3)[0];
+      if (f && spot)
+        this.spawnCrew(
+          { id: f.id, name: f.name, title: f.title, color: f.color, share: 0.8 },
+          spot,
+        );
+    } else if (kind === "gear") {
+      this.wear(ITEMS[what]);
+    } else if (kind === "salts" || kind === "snacks") {
+      for (const it of kind === "salts" ? ["salts"] : ["firstaid", "firstaid"])
+        if (p.pockets.length < POCKET_SIZE) p.pockets.push(it);
+    } else {
+      p.hp = this.maxHp();
+      p.guts = this.maxGuts();
+      for (const e of this.area.enemies) if (e.ally) e.hp = e.maxHp;
+    }
+    p.hp = Math.min(p.hp, this.maxHp());
+    ar.offers = null;
+    this.log(`You take: ${name}.`, C.lime);
+    this.sound("levelup");
+    this.startArcadeWave();
+    return { ok: true, message: name };
+  }
+
+  /** The Arcade's numbers for the screen. */
+  arcadeInfo(): { wave: number; cleared: number; foes: number; friends: number } | null {
+    const ar = this.s.arcade;
+    if (!ar) return null;
+    return {
+      wave: ar.wave,
+      cleared: ar.cleared,
+      foes: this.everyone().filter((e) => !e.ally).length,
+      friends: this.area.enemies.filter((e) => e.ally).length,
+    };
+  }
+
+  // -------------------------------------------------------------------------------------------
   // The Rumble (data/rumble.ts)
 
   /** Whether the Rumble is going on around you right now. */
@@ -3896,32 +4163,7 @@ export class Game {
     for (const c of rumbleCrew(this)) {
       const spot = this.spotsNear(p, 2)[0] ?? this.spotsNear(p, 4)[0];
       if (!spot) break;
-      const stats = {} as Stats;
-      for (const k of ALL_STATS) stats[k] = Math.max(4, Math.round(p.base[k] * c.share));
-      this.area.enemies.push({
-        id: newEnemyId(),
-        x: spot.x,
-        y: spot.y,
-        hp: stats.stamina,
-        maxHp: stats.stamina,
-        time: p.time + 20 + friends * 7,
-        stun: 0,
-        down: 0,
-        kind: "crew",
-        name: c.name,
-        title: c.title,
-        glyph: PARTNER_GLYPH,
-        color: c.color,
-        stats,
-        ai: "brawler",
-        awake: true,
-        windup: null,
-        cash: 0,
-        boss: false,
-        cooldown: 0,
-        ally: "crew",
-        crew: c.id,
-      });
+      this.spawnCrew(c, spot, 20 + friends * 7);
       friends++;
     }
     const bonus = Math.floor(Math.max(0, friends - 2) / CREW_PER_EXTRA_FOE);
@@ -3935,6 +4177,41 @@ export class Game {
         C.yellow,
       );
     this.spawnRumbleWave();
+  }
+
+  /** A friend joins the fight at a spot (a share of your base stats, on your side). */
+  private spawnCrew(
+    c: { id: string; name: string; title: string; color: Color; share: number },
+    spot: { x: number; y: number },
+    delay = 20,
+  ): void {
+    const p = this.s.player;
+    const stats = {} as Stats;
+    for (const k of ALL_STATS) stats[k] = Math.max(4, Math.round(p.base[k] * c.share));
+    this.area.enemies.push({
+      id: newEnemyId(),
+      x: spot.x,
+      y: spot.y,
+      hp: stats.stamina,
+      maxHp: stats.stamina,
+      time: p.time + delay,
+      stun: 0,
+      down: 0,
+      kind: "crew",
+      name: c.name,
+      title: c.title,
+      glyph: PARTNER_GLYPH,
+      color: c.color,
+      stats,
+      ai: "brawler",
+      awake: true,
+      windup: null,
+      cash: 0,
+      boss: false,
+      cooldown: 0,
+      ally: "crew",
+      crew: c.id,
+    });
   }
 
   /** The next wave comes out of the tower doors (Baron Voss leads the last one). */

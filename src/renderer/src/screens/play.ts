@@ -20,6 +20,7 @@ import { addRecord } from "../records";
 import { ACTION_DIR, actionFor, keyName, settings } from "../settings";
 import { Term } from "../term";
 import { nextTip } from "../tips";
+import { ArcadePickScreen } from "./arcade";
 import { ArenaScreen } from "./arena";
 import { BoardScreen, JobsScreen } from "./board";
 import { BusScreen } from "./bus";
@@ -277,6 +278,7 @@ export class PlayScreen implements Screen {
     let bout: "won" | "lost" | null = null;
     let impact = 0;
     let talk: string | null = null;
+    let arcade = false;
     let scene: string | null = null;
     for (const ev of g.events) {
       if (ev.type === "pop")
@@ -290,6 +292,7 @@ export class PlayScreen implements Screen {
       else if (ev.type === "impact") impact = Math.max(impact, ev.power);
       else if (ev.type === "bout") bout = ev.result;
       else if (ev.type === "talk") talk = ev.quest;
+      else if (ev.type === "arcade") arcade = true;
       else if (ev.type === "scene") scene = ev.boss;
     }
     g.events.length = 0;
@@ -345,6 +348,7 @@ export class PlayScreen implements Screen {
     if (area) void this.app.save();
     else this.app.autosave();
     if (talk) this.app.push(new TalkScreen(this.app, talk));
+    if (arcade && g.s.arcade?.offers) this.app.push(new ArcadePickScreen(this.app));
     if (scene)
       this.app.push(
         scene === "rumble" ? new RumbleScreen(this.app) : new SceneScreen(this.app, scene),
@@ -663,6 +667,15 @@ export class PlayScreen implements Screen {
     }
     // Area name across the top.
     t.text(1, 0, ` ${a.name} `, C.black, C.cyan);
+    const ai = g.arcadeInfo();
+    if (ai)
+      t.text(
+        a.name.length + 4,
+        0,
+        ` ARCADE  Wave ${ai.wave}  Cleared ${ai.cleared}  Foes ${ai.foes}${ai.friends ? `  Friends ${ai.friends}` : ""} `,
+        C.black,
+        C.magenta,
+      );
     const rumble = g.rumbleInfo();
     if (rumble) {
       const wave =
@@ -688,7 +701,7 @@ export class PlayScreen implements Screen {
       y++;
     };
     t.text(x + 1, y, p.name.toUpperCase(), C.yellow);
-    const mode = g.s.mode === "permadeath" ? "PERMADEATH" : "";
+    const mode = g.s.arcade ? "ARCADE" : g.s.mode === "permadeath" ? "PERMADEATH" : "";
     if (mode) t.text(x + SIDE_W - mode.length - 1, y, mode, C.red);
     y++;
     t.text(x + 1, y, g.area.name, C.cyan, undefined, x + SIDE_W - 15);

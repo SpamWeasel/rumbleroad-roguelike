@@ -22,6 +22,7 @@ import {
 } from "../settings";
 import { appInfo, copyText, deleteSlot, listSlots, readSlot } from "../storage";
 import { COLS, ROWS, Term } from "../term";
+import { ArcadeSetupScreen } from "./arcade";
 import { JobsScreen } from "./board";
 import { CharacterScreen } from "./character";
 import { CityMapScreen } from "./citymap";
@@ -133,6 +134,7 @@ export class TitleScreen implements Screen {
     return [
       ...(this.newest() ? ["Continue"] : []),
       "New Game",
+      "Arcade Mode",
       ...(this.slots.length ? ["Load Game"] : []),
       "Settings",
       "Records",
@@ -155,6 +157,7 @@ export class TitleScreen implements Screen {
           this.app.redraw();
         });
       } else if (choice === "New Game") this.app.push(new CreateScreen(this.app, this.slots));
+      else if (choice === "Arcade Mode") this.app.push(new ArcadeSetupScreen(this.app));
       else if (choice === "Load Game") this.app.push(new SlotsScreen(this.app));
       else if (choice === "Settings") this.app.push(new SettingsScreen(this.app));
       else if (choice === "Records") this.app.push(new RecordsScreen(this.app));
@@ -181,13 +184,15 @@ export class TitleScreen implements Screen {
     });
     for (let k = 0; k < COLS; k++) t.put(k, 16, "▀", C.asphalt);
     const opts = this.options();
+    // A long menu (saves and Quit) starts a row higher to fit above the tagline.
+    const top = opts.length > 8 ? 17 : 18;
     opts.forEach((o, i) => {
       const sel = i === this.cursor;
-      t.center(18 + i * 2, sel ? `► ${o} ◄` : o, sel ? C.yellow : C.light);
+      t.center(top + i * 2, sel ? `► ${o} ◄` : o, sel ? C.yellow : C.light);
     });
     const newest = this.newest();
     if (newest && opts[this.cursor] === "Continue")
-      t.center(18 + opts.length * 2, newest.title, C.gray);
+      t.center(top + opts.length * 2 - 1, newest.title, C.gray);
     if (this.error) t.center(ROWS - 5, this.error, C.red);
     t.center(ROWS - 3, "Eat. Train. Brawl. Take back the city.", C.gray);
     t.center(ROWS - 2, "↑↓ and Enter  (or a controller)", C.dim);
@@ -684,9 +689,15 @@ class RecordsScreen implements Screen {
         const cells = [
           `${i + 1}.`,
           r.name,
-          r.result === "won" ? "WON" : "KO'd",
+          r.arcade !== undefined ? `Wave ${r.arcade}` : r.result === "won" ? "WON" : "KO'd",
           r.difficulty,
-          r.daily ? `Daily/${r.mode === "Permadeath" ? "Perma" : "Street"}` : r.mode,
+          r.arcade !== undefined
+            ? r.daily
+              ? "Arcade/Daily"
+              : "Arcade"
+            : r.daily
+              ? `Daily/${r.mode === "Permadeath" ? "Perma" : "Street"}`
+              : r.mode,
           r.area,
           String(r.kos),
           String(r.turns),
@@ -799,6 +810,10 @@ export class HelpScreen implements Screen {
         "GOAL",
         "Fight east, beat the bosses, win the Rumble at Crown Plaza, and take down Duke Varga.",
       ],
+      [
+        "ARCADE",
+        "From the title screen: endless waves in a parking lot, an upgrade after each wave.",
+      ],
       ["SAVING", "The game saves itself as you play, and when you close the window. 3 save slots."],
     ];
     t.box(4, 2, 102, 31, C.yellow, "How to Play");
@@ -819,6 +834,16 @@ export class MenuScreen implements Screen {
 
   private options(): string[] {
     const inBout = !!this.app.game?.s.bout;
+    if (this.app.game?.s.arcade)
+      return [
+        "Resume",
+        "Character Sheet",
+        "Street Guide",
+        "Settings",
+        "How to Play",
+        "Quit the run",
+        ...(window.rumblerow ? ["Exit Game"] : []),
+      ];
     return [
       "Resume",
       "Character Sheet",
@@ -880,6 +905,11 @@ export class MenuScreen implements Screen {
           this.app.game = null;
           this.app.reset(new TitleScreen(this.app));
         });
+      } else if (o === "Quit the run") {
+        this.app.game = null;
+        this.app.reset(new TitleScreen(this.app));
+      } else if (o === "Exit Game") {
+        window.rumblerow?.quit();
       } else if (o === "Save & Exit Game") {
         void this.app.save().then(() => window.rumblerow?.quit());
       }
@@ -1076,30 +1106,38 @@ export class EndScreen implements Screen {
     const g = this.app.game;
     if (!g) return;
     const won = this.how === "won";
+    const arcade = g.s.arcade;
     t.box(
       14,
       4,
       82,
       26,
-      won ? C.gold : C.red,
-      won ? "THE CITY IS FREE" : "GAME OVER",
-      won ? C.gold : C.red,
+      won ? C.gold : arcade ? C.magenta : C.red,
+      won ? "THE CITY IS FREE" : arcade ? "ARCADE - GAME OVER" : "GAME OVER",
+      won ? C.gold : arcade ? C.magenta : C.red,
     );
     const p = g.player;
     const lines = won
       ? epilogue(g)
-      : [
-          `${p.name} was knocked out cold in ${g.area.name}.`,
-          "The gangs keep the city... for now.",
-        ];
+      : arcade
+        ? [
+            `${p.name} went down on wave ${arcade.wave} of the Midnight Lot.`,
+            `Waves cleared: ${arcade.cleared}${g.s.daily ? ` (daily run ${g.s.daily})` : ""}`,
+          ]
+        : [
+            `${p.name} was knocked out cold in ${g.area.name}.`,
+            "The gangs keep the city... for now.",
+          ];
     lines.forEach((l, i) => t.center(6 + i, l, C.light, 14, 82));
     const stats = [
-      [
-        "Difficulty",
-        `${DIFFICULTY[g.s.difficulty].label}, ${g.s.mode === "permadeath" ? "Permadeath" : "Street Rules"}`,
-      ],
+      arcade
+        ? ["Mode", g.s.daily ? `Arcade, daily run ${g.s.daily}` : "Arcade"]
+        : [
+            "Difficulty",
+            `${DIFFICULTY[g.s.difficulty].label}, ${g.s.mode === "permadeath" ? "Permadeath" : "Street Rules"}`,
+          ],
       ["Gang members knocked out", String(p.kos)],
-      ["Cash in pocket", `$${p.cash}`],
+      arcade ? ["Waves cleared", String(arcade.cleared)] : ["Cash in pocket", `$${p.cash}`],
       ["Turns", String(g.s.turn)],
       ["Special moves learned", String(p.techniques.length)],
       ["Punch / Kick / Strength", `${g.stat("punch")} / ${g.stat("kick")} / ${g.stat("strength")}`],

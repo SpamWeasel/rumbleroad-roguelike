@@ -3,6 +3,7 @@ import { DAY_START, Game } from "../../game/game";
 import { walkable } from "../../game/tiles";
 import { App } from "./app";
 import { loadProfile } from "./profile";
+import { ARCADE_SLOT } from "./screens/arcade";
 import { ArenaScreen } from "./screens/arena";
 import { BoardScreen } from "./screens/board";
 import { BusScreen } from "./screens/bus";
@@ -64,6 +65,7 @@ async function smoke(app: App, scene: string): Promise<void> {
       // Title > Settings > Change keys.
       for (const code of [
         "ArrowDown",
+        "ArrowDown",
         "Enter",
         "ArrowDown",
         "ArrowDown",
@@ -78,9 +80,13 @@ async function smoke(app: App, scene: string): Promise<void> {
       // Title > New Game (the first option while there are no saves), then pick Boxer.
       for (const code of ["Enter", "ArrowDown", "ArrowRight"])
         window.dispatchEvent(new KeyboardEvent("keydown", { code }));
+    } else if (scene === "arcadesetup") {
+      // Title > Arcade Mode (the second option while there are no saves), then pick Kicker.
+      for (const code of ["ArrowDown", "Enter", "ArrowDown", "ArrowRight", "ArrowRight"])
+        window.dispatchEvent(new KeyboardEvent("keydown", { code }));
     } else if (scene === "settings") {
-      // Title > Settings (Settings is the 2nd or 3rd option depending on saves).
-      for (const code of ["ArrowDown", "Enter"])
+      // Title > Settings (after New Game and Arcade Mode while there are no saves).
+      for (const code of ["ArrowDown", "ArrowDown", "Enter"])
         window.dispatchEvent(new KeyboardEvent("keydown", { code }));
     } else if (scene !== "title") {
       const play = startGame(app, Game.create("Smoke", "street", 12345), 2);
@@ -318,6 +324,34 @@ async function smoke(app: App, scene: string): Promise<void> {
         }
         g.updateView();
         play.flush();
+      }
+      if (scene === "arcade" || scene === "arcadepick" || scene === "arcadeover") {
+        // An Arcade run a few waves in, with a friend and some upgrades.
+        const g = Game.createArcade("Smoke", 4242, "allround");
+        const arcadePlay = startGame(app, g, ARCADE_SLOT);
+        const inside = g as unknown as { knockOut(e: unknown): void };
+        for (let w = 0; w < 3; w++) {
+          for (const e of [...g.area.enemies]) if (!e.ally) inside.knockOut(e);
+          g.wait();
+          const offers = g.s.arcade?.offers ?? [];
+          const friend = offers.findIndex((o) => o.startsWith("friend"));
+          g.pickArcade(friend >= 0 ? friend : 0);
+        }
+        if (g.arcadeInfo()?.wave !== 4) errors.push("the Arcade did not reach wave 4");
+        for (let i = 0; i < 4; i++) g.guard();
+        if (scene === "arcadepick") {
+          for (const e of [...g.area.enemies]) if (!e.ally) inside.knockOut(e);
+          g.wait();
+          if (!g.s.arcade?.offers) errors.push("no upgrades on offer");
+        }
+        if (scene === "arcadeover") {
+          g.player.pockets = [];
+          g.player.hp = 0;
+          (g as unknown as { playerDown(): void }).playerDown();
+          if (g.s.over !== "dead") errors.push("the Arcade run did not end");
+        }
+        g.events = g.events.filter((e) => e.type !== "dead" || scene === "arcadeover");
+        arcadePlay.flush();
       }
       if (scene === "citymap") {
         // Halfway through the city with some turf, one block under attack.

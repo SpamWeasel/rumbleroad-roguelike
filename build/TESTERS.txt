@@ -1,8 +1,23 @@
-RUMBLE ROW 0.10 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.11 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.11 - "ARCADE MODE"
+---------------------------
+- Arcade Mode, from the title screen: an endless brawl in the Midnight Lot, a fenced-in parking
+  lot. Waves of gang members keep coming, each a little tougher, and a boss leads every fifth
+  wave (Gnash, Mara Fang, Kilo Marsh, Baron Voss, then Duke Varga - and round again, tougher).
+- After each wave, pick one of three upgrades: a big stat boost, a training montage, a new
+  special move, a partner who joins the fight, a piece of gear, smelling salts, a snack run,
+  or a second wind. Every run builds differently.
+- One life: a knock-out ends the run (smelling salts still save you). Your style's stats start
+  doubled. Runs aren't saved - the waves you clear go on the Records board.
+- Daily Arcade run: the same waves and upgrades for everyone that day.
+- Two new achievements: clear 10 waves, and clear 25 (that's Duke Varga).
+- Your 0.10 save carries over (Arcade Mode doesn't touch your saves at all).
 
 
 NEW IN 0.10 - "THE RUMBLE"
