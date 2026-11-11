@@ -12,6 +12,7 @@ import {
   NEON,
   PIER,
   PIER9,
+  PLAZA,
   ROOF,
   TRAINYARD,
 } from "./data/maps";
@@ -300,8 +301,20 @@ def({
   gen: "streets",
   theme: "construction",
   sight: 11,
-  exits: { "<": { to: "ashgate", arrive: ">" }, ">": { to: "lobby", arrive: "<" } },
+  exits: { "<": { to: "ashgate", arrive: ">" }, ">": { to: "plaza", arrive: "<" } },
   intro: "The Steelworks Site, at the foot of Crown Tower. Watch out for open pits.",
+});
+def({
+  id: "plaza",
+  name: "Crown Plaza",
+  kind: "static",
+  depth: 11,
+  gang: "crowns",
+  map: PLAZA,
+  locked: { ">": "voss" },
+  sight: 16,
+  exits: { "<": { to: "steelworks", arrive: ">" }, ">": { to: "lobby", arrive: "<" } },
+  intro: "Crown Plaza. Marble, floodlights, and the tower doors on the far side.",
 });
 def({
   id: "lobby",
@@ -311,7 +324,7 @@ def({
   gang: "crowns",
   map: LOBBY,
   sight: 14,
-  exits: { "<": { to: "steelworks", arrive: ">" }, ">": { to: "roof", arrive: "<" } },
+  exits: { "<": { to: "plaza", arrive: ">" }, ">": { to: "roof", arrive: "<" } },
   intro: "Crown Tower. Marble, gold trim, and a lot of guards. The elevator is at the far end.",
 });
 def({
@@ -652,7 +665,7 @@ export function buildArea(
     lamp: lit ?? new Uint8Array(w * h),
     enemies,
     items,
-    lit: d.kind === "town" || d.kind === "arena" || id === "lighthouse",
+    lit: d.kind === "town" || d.kind === "arena" || id === "lighthouse" || id === "plaza",
     depth: d.depth,
     gang: d.gang ?? null,
     start: startAt,

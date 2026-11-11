@@ -105,6 +105,20 @@ Electron setup is copied from Hollowdeep.
   `s.beaten` ("gang:rank", in `knockOut`); `GuideScreen` (key F). Look mode lives in
   `PlayScreen.look` (key V). New-player tips: `renderer/src/tips.ts`, seen ids in the profile,
   `settings.tips`; smoke tests switch them off except the `tips` scene. Save version 9.
+- **The Rumble** (0.10, `data/rumble.ts`): `plaza` (Crown Plaza, depth 11, lit, locked ">" by
+  `voss`) sits between steelworks and lobby. `enterArea` calls `startRumble` while
+  `flags.voss` is unset: `rumbleCrew(g)` friends spawn as `Enemy` with `ally: "crew"` and
+  `crew` set (`crewTurn`, `foeMap`); `ally()` means your partner only. `s.rumble` keeps the wave
+  (kept on a knock-out); `checkRumble` (end of `endAction`) spawns the next of `RUMBLE_WAVES`,
+  Voss leads the last; `rumbleWon` on his KO. The chase map targets the crew too while the
+  Rumble is on (range 120: the plaza is wide). Fights without you are quiet (no log or sound).
+  Scenes: "rumble" -> `RumbleScreen` roll call, "intro" -> opening scene on a new game.
+- **Lifting** (0.10): `liftable()` = a downed/dazed non-boss next to you; `grab()` moves them
+  from `area.enemies` to `player.carry` (saved with the player; `everyone()` counts them for
+  sweeps, raids and bouts). `throwBody` (via `throwHeld`) flies them up to 2-5 squares into a
+  foe, wall or hazard. `CARRY_TURNS` before they wriggle free; a hit makes you drop them.
+  KO streaks: `koStreak` counts only the player's knock-outs (`credit`, set per `strike`).
+  Save version 10 (0.9 saves inside the tower get `flags.voss`).
 - **Music** (`renderer/src/music.ts`): tracks are text patterns, 16 steps a bar; `App.musicFor`
   picks title/town/street/boss/arena. Separate music volume; smoke tests mute the window.
 - **Settings/records** are JSON beside the saves (`readData`/`writeData`). Keys are data
@@ -142,6 +156,10 @@ Electron setup is copied from Hollowdeep.
 - 0.9 with weather (12 seeds each, means): Easy ~7,800 / ~1.7 KOs, Normal ~9,100 / ~4.5,
   Normal solo ~9,200 / ~5, Hard ~11,500 / ~8.8. All win. The 0.8 "Hard under Normal" was noise
   from 6 seeds - use 12 when comparing difficulties.
+- 0.10 with the Rumble (12 seeds, means): Easy ~8,300 / ~1.8 KOs, Normal ~10,300 / ~4.5, Normal
+  solo ~11,700 / ~4.4, Hard ~11,900 / ~8.9. All win. The bot brings only the regulars and its
+  partner (no quests), and about half its runs retreat from the plaza at least once (100-200
+  turns when it pushes straight through, 1,000-3,700 with a shopping trip). Waves 8/9/6 + Voss.
 - Agility is the stat most likely to snowball (speed + dodge + accuracy); keep its effects small.
 - Food Stamina gains are ~3x other stats because Stamina is on a bigger scale.
 
@@ -153,7 +171,7 @@ Electron setup is copied from Hollowdeep.
 - In dev, `window.__rr` holds `{ app, game, play }` for poking at a running game.
 - `pnpm smoke` builds, then launches keys, create, title, settings, game, shop, board, partner,
   sheet, street, night, bus, kennel, ashgate, tailor, pawn, citymap, carnival, nightmarket, talk, questlog, scene, rain, guide, gangguide, look, tips,
-  help, achievements, ending, arena,
+  intro, rollcall, rumble, carry, help, achievements, ending, arena,
   bout and saves (backup
   recovery) screens silently with throwaway saves, writing screenshots and reports to
   `.smoke/`; fails on any script error.

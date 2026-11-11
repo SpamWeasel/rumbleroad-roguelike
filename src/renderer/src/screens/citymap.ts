@@ -28,6 +28,7 @@ const ROUTE = [
   "kennel",
   "ashgate",
   "steelworks",
+  "plaza",
   "lobby",
   "roof",
 ];
@@ -55,15 +56,17 @@ export class CityMapScreen implements Screen {
     let yy = y + 3;
     for (const id of ROUTE) {
       const d = AREAS[id];
+      // Crown Plaza has a boss too: Baron Voss leads the last wave of the Rumble.
+      const bossId = d.boss ?? (id === "plaza" ? "voss" : undefined);
       const seen = !!g.s.visits[id];
       const here = g.area.id === id;
       const branch = ["lighthouse", "pier", "lantern"].includes(id);
-      const mark = here ? "@" : d.kind === "town" || branch ? "◆" : d.boss ? "▲" : "▪";
+      const mark = here ? "@" : d.kind === "town" || branch ? "◆" : bossId ? "▲" : "▪";
       const markColor = here
         ? C.yellow
         : d.kind === "town" || branch
           ? C.cyan
-          : d.boss
+          : bossId
             ? C.red
             : C.gray;
       if (branch) t.text(x + 3, yy, "└", C.dim);
@@ -76,8 +79,8 @@ export class CityMapScreen implements Screen {
       );
       // Who runs it.
       if (d.kind === "town" || branch) t.text(x + 32, yy, seen ? "Town - shops" : "", C.cyan);
-      else if (d.boss) {
-        const b = BOSSES[d.boss];
+      else if (bossId) {
+        const b = BOSSES[bossId];
         const beaten = !!g.s.flags[b.flag];
         if (seen || beaten)
           t.text(x + 32, yy, `${b.name}${beaten ? " - beaten" : ""}`, beaten ? C.lime : b.color);

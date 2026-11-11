@@ -257,6 +257,68 @@ async function smoke(app: App, scene: string): Promise<void> {
           for (let i = 0; i < 3; i++)
             window.dispatchEvent(new KeyboardEvent("keydown", { code: "ArrowDown" }));
       }
+      if (scene === "intro") app.push(new SceneScreen(app, "intro"));
+      if (scene === "rollcall" || scene === "rumble") {
+        // Crown Plaza with a big crew: a partner, quest friends, the rival, a champ and turf.
+        const g = app.game as Game;
+        const p = g.player;
+        for (const k of ["punch", "kick", "strength", "agility", "defense", "guts"] as const)
+          p.base[k] = 60;
+        p.base.stamina = 220;
+        p.hp = 220;
+        p.cash = 2000;
+        g.hirePartner("riptide");
+        for (const q of ["rosa_recipe", "coach_comeback", "pete_boat", "mike_sauce", "jinx_arcade"])
+          g.s.quests[q] = { step: 9, progress: 0, done: true };
+        g.s.rival.wins = 5;
+        g.s.flags.title_club_harbor = true;
+        g.s.turf.docks = { sweeps: 3, held: true, raid: null, swept: 0 };
+        const inside = g as unknown as { enterArea(id: string, arrive: string): void };
+        inside.enterArea("plaza", "<");
+        if (!g.rumbleOn()) errors.push("the Rumble did not start");
+        if (scene === "rumble") {
+          g.events.length = 0;
+          // Let the two sides close in for a few turns.
+          for (let i = 0; i < 6 && g.rumbleOn(); i++) g.guard();
+          if (!g.rumbleInfo()) errors.push("no Rumble info");
+        }
+        play.flush();
+      }
+      if (scene === "carry") {
+        // Holding a Rust Rat overhead in the alleys, with his friends lined up.
+        const g = app.game as Game;
+        const inside = g as unknown as { enterArea(id: string, arrive: string): void };
+        inside.enterArea("alleys", "<");
+        g.area.lit = true;
+        const p = g.player;
+        const foe = g.area.enemies.find((e) => !e.ally);
+        if (!foe) errors.push("no one to lift");
+        else {
+          const spot = [
+            [1, 0],
+            [0, 1],
+            [-1, 0],
+            [0, -1],
+            [1, 1],
+            [-1, -1],
+          ].find(
+            ([dx, dy]) =>
+              g.tileAt(p.x + dx, p.y + dy) !== undefined &&
+              walkable(g.tileAt(p.x + dx, p.y + dy)) &&
+              !g.enemyAt(p.x + dx, p.y + dy),
+          );
+          if (spot) {
+            foe.x = p.x + spot[0];
+            foe.y = p.y + spot[1];
+          }
+          foe.down = 3;
+          p.facing = spot ? [spot[0], spot[1]] : p.facing;
+          g.area.items = g.area.items.filter((i) => i.x !== p.x || i.y !== p.y);
+          if (!g.grab() || !p.carry) errors.push("could not lift the gang member");
+        }
+        g.updateView();
+        play.flush();
+      }
       if (scene === "citymap") {
         // Halfway through the city with some turf, one block under attack.
         const g = app.game as Game;

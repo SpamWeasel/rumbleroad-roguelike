@@ -29,7 +29,7 @@ import { CityMapScreen } from "./citymap";
 import { GuideScreen } from "./guide";
 import { EndScreen, HelpScreen, LogScreen, MenuScreen, NoticeScreen } from "./menus";
 import { PocketsScreen } from "./pockets";
-import { QuestLogScreen, SceneScreen, TalkScreen } from "./quests";
+import { QuestLogScreen, RumbleScreen, SceneScreen, TalkScreen } from "./quests";
 import { ShopScreen } from "./shop";
 
 export const MAP_W = 76;
@@ -150,7 +150,7 @@ export class PlayScreen implements Screen {
         this.flush();
         return;
       case "throw":
-        if (!g.player.held) {
+        if (!g.player.held && !g.player.carry) {
           g.notice("You're not holding anything to throw. Stand on an object and grab it first.");
           return;
         }
@@ -345,7 +345,10 @@ export class PlayScreen implements Screen {
     if (area) void this.app.save();
     else this.app.autosave();
     if (talk) this.app.push(new TalkScreen(this.app, talk));
-    if (scene) this.app.push(new SceneScreen(this.app, scene));
+    if (scene)
+      this.app.push(
+        scene === "rumble" ? new RumbleScreen(this.app) : new SceneScreen(this.app, scene),
+      );
     if (shop) {
       const kind = SHOPS[shop]?.kind;
       this.app.push(
@@ -628,8 +631,12 @@ export class PlayScreen implements Screen {
         sy,
         "@",
         low && blink ? C.red : C.white,
-        p.guard ? C.navy : p.stun > 0 ? "#4a3a00" : C.black,
+        p.guard ? C.navy : p.stun > 0 ? "#4a3a00" : p.carry ? "#5a3a00" : C.black,
       );
+      // Whoever you're carrying, held over your head.
+      const up = p.carry;
+      if (up && sy > 0 && !a.enemies.some((e) => e.x === p.x && e.y === p.y - 1))
+        t.put(sx, sy - 1, up.glyph, up.color, "#5a3a00");
       if (this.pending) {
         for (const [dx, dy] of [
           [-1, -1],
@@ -656,6 +663,18 @@ export class PlayScreen implements Screen {
     }
     // Area name across the top.
     t.text(1, 0, ` ${a.name} `, C.black, C.cyan);
+    const rumble = g.rumbleInfo();
+    if (rumble) {
+      const wave =
+        rumble.wave === rumble.waves ? "Final wave" : `Wave ${rumble.wave} of ${rumble.waves}`;
+      t.text(
+        a.name.length + 4,
+        0,
+        ` THE RUMBLE  ${wave}  Crowns ${rumble.foes}  Crew ${rumble.crew} `,
+        C.yellow,
+        C.darkRed,
+      );
+    }
   }
 
   private drawSidebar(t: Term): void {
@@ -753,6 +772,10 @@ export class PlayScreen implements Screen {
         undefined,
         x + SIDE_W,
       );
+    }
+    if (p.carry) {
+      t.text(x + 1, y, "Held", C.gray);
+      t.text(x + 7, y++, `${p.carry.name} (${p.carryTurns ?? 0})`, C.yellow, undefined, x + SIDE_W);
     }
     if (p.bleed) t.text(x + 1, y++, `BLEEDING ${p.bleed.dmg}/turn (${p.bleed.turns})`, C.red);
     for (const b of p.buffs.slice(0, 2)) {
@@ -869,6 +892,31 @@ export class PlayScreen implements Screen {
       t.text(0, HINT_Y, g.hint.text, C.amber, undefined, MAP_W);
       return;
     }
+    const kk = (a: Parameters<typeof keyName>[0]) => keyName(a);
+    const carried = g.player.carry;
+    if (carried) {
+      t.text(
+        0,
+        HINT_Y,
+        `${kk(settings.keys.throw[0])}: THROW ${carried.name} - at their friends, a wall, or the water!   ${kk(settings.keys.grab[0])}: put down`,
+        C.yellow,
+        undefined,
+        MAP_W,
+      );
+      return;
+    }
+    const floored = !g.player.held ? g.liftable() : undefined;
+    if (floored) {
+      t.text(
+        0,
+        HINT_Y,
+        `${floored.name} is ${floored.down > 0 ? "down" : "dazed"}!  ${kk(settings.keys.grab[0])}: lift them over your head`,
+        C.yellow,
+        undefined,
+        MAP_W,
+      );
+      return;
+    }
     const c = g.player.combo;
     if (c && c.turn >= g.s.turn - 1 && g.area.enemies.some((e) => e.id === c.id)) {
       t.text(
@@ -919,6 +967,14 @@ export class PlayScreen implements Screen {
       out.push({ text: `${p.name} (you)`, color: C.yellow });
       out.push({ text: `HP ${p.hp}/${g.maxHp()}  Guts ${p.guts}/${g.maxGuts()}`, color: C.light });
       if (p.held) out.push({ text: `Holding a ${OBJECTS[p.held].name}`, color: C.gray });
+      if (p.carry) out.push({ text: `Holding ${p.carry.name} overhead`, color: C.yellow });
+      return out;
+    }
+    const friend = visible ? a.enemies.find((e) => e.crew && e.x === x && e.y === y) : undefined;
+    if (friend) {
+      out.push({ text: `${friend.name}, ${friend.title}`, color: friend.color });
+      out.push({ text: `HP ${friend.hp}/${friend.maxHp}`, color: C.light });
+      out.push({ text: "On your side. Walk into them to swap places.", color: C.gray });
       return out;
     }
     const pal = g.ally();
@@ -941,6 +997,7 @@ export class PlayScreen implements Screen {
       if (e.windup) notes.push("winding up a big hit!");
       if (e.stun > 0) notes.push("stunned");
       if (e.down > 0) notes.push("knocked down");
+      if ((e.down > 0 || e.stun > 0) && !e.boss) notes.push("can be lifted");
       if (!e.awake) notes.push("hasn't noticed you");
       if (e.held) notes.push(`holding a ${OBJECTS[e.held].name}`);
       if (e.job) notes.push("bounty target");

@@ -25,6 +25,7 @@ const route = [
   "kennel",
   "ashgate",
   "steelworks",
+  "plaza",
   "lobby",
   "roof",
 ];

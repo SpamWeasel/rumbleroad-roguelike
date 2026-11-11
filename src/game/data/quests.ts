@@ -306,6 +306,21 @@ export const QUEST_BY_ID: Record<string, QuestDef> = Object.fromEntries(
   QUESTS.map((q) => [q.id, q]),
 );
 
+/** How a new game opens. */
+export const INTRO_SCENE: { speaker: string; line: string }[] = [
+  {
+    speaker: "Maple Street, 8:00 in the morning",
+    line: "The window of Rosa's Diner is smashed again, and the register is empty.",
+  },
+  {
+    speaker: "Rosa",
+    line: "Third time this month, hon. The Rats take it, and it all ends up in Crown Tower.",
+  },
+  { speaker: "Rosa", line: "Duke Varga owns every gang in this city. Nobody stands up to him." },
+  { speaker: "You", line: "Somebody's about to." },
+  { speaker: "Rosa", line: "Then eat something first. Nobody wins a fight on an empty stomach." },
+];
+
 /** Each boss gets a short scene the first time they spot you. */
 export const BOSS_SCENES: Record<string, { speaker: string; line: string }[]> = {
   gnash: [

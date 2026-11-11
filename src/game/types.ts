@@ -125,6 +125,11 @@ export interface Player extends Fighter {
   kos: number;
   /** Hits in a row on one foe, for combo finishers (enemy id, count, turn of the last hit). */
   combo?: { id: number; n: number; turn: number };
+  /** A knocked-down foe lifted over your head, and the actions left before they wriggle free. */
+  carry?: Enemy | null;
+  carryTurns?: number;
+  /** Knock-outs in a row (yours, not your friends'): how many, and the turn of the last. */
+  streak?: { n: number; turn: number };
   /** A knife cut that keeps bleeding: damage a turn and turns left. */
   bleed?: { dmg: number; turns: number };
   /** Times each worn piece of gear has been tailored (reset when it's replaced). */
@@ -175,6 +180,8 @@ export interface Enemy extends Fighter {
   ally?: string;
   /** The side quest this named fighter belongs to. */
   quest?: string;
+  /** A friend fighting beside you at the Rumble (a crew id from data/rumble.ts). */
+  crew?: string;
   /** Which way a guard is facing (they block punches from the front). */
   facing?: Dir;
   /** Something extra about this one (data/enemies.ts TRAITS). */

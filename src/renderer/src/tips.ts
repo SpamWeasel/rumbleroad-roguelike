@@ -30,6 +30,12 @@ const TIPS: Tip[] = [
       `Someone's winding up a big hit: the flashing square gets hit next turn. Step out of the way or guard (${k("guard")}).`,
   },
   {
+    id: "lift",
+    when: (g) => !g.player.held && !!g.liftable(),
+    text: () =>
+      `A foe is down next to you! Press ${k("grab")} to lift them over your head, then ${k("throw")} to throw them at their friends.`,
+  },
+  {
     id: "hurt",
     when: (g) => g.area.kind !== "town" && g.player.hp < g.maxHp() * 0.5,
     text: () =>

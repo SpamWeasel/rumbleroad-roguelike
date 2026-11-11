@@ -27,7 +27,7 @@ import { CharacterScreen } from "./character";
 import { CityMapScreen } from "./citymap";
 import { GuideScreen } from "./guide";
 import { PlayScreen } from "./play";
-import { QuestLogScreen } from "./quests";
+import { QuestLogScreen, SceneScreen } from "./quests";
 
 const LOGO = String.raw`
  ____  _   _ __  __ ____  _     _____   ____   _____        __
@@ -258,7 +258,10 @@ class CreateScreen implements Screen {
         : (Date.now() ^ Math.floor(Math.random() * 0xffffffff)) >>> 0;
       const game = Game.create(this.name, this.mode, seed, this.difficulty, this.style);
       if (this.daily) game.s.daily = today;
-      void deleteSlot(this.slot).then(() => startGame(this.app, game, this.slot));
+      void deleteSlot(this.slot).then(() => {
+        startGame(this.app, game, this.slot);
+        this.app.push(new SceneScreen(this.app, "intro"));
+      });
       return;
     }
     if (this.row === 0) {
@@ -789,10 +792,13 @@ export class HelpScreen implements Screen {
       ],
       [
         "",
-        `Three punches or kicks in a row on one foe make a COMBO finisher. ${k("sheet")}: character sheet.`,
+        `A 3-hit COMBO floors a foe. ${k("grab")} lifts a floored foe, ${k("throw")} throws them! ${k("sheet")}: character sheet.`,
       ],
       ["", "Big guys wind up huge swings - the target square flashes red. Step away or guard!"],
-      ["GOAL", "Fight east, beat each gang's boss, and take down Duke Varga in Crown Tower."],
+      [
+        "GOAL",
+        "Fight east, beat the bosses, win the Rumble at Crown Plaza, and take down Duke Varga.",
+      ],
       ["SAVING", "The game saves itself as you play, and when you close the window. 3 save slots."],
     ];
     t.box(4, 2, 102, 31, C.yellow, "How to Play");
@@ -978,10 +984,19 @@ function todayString(): string {
 }
 
 export class AchievementsScreen implements Screen {
+  /** The first achievement on show (the list scrolls). */
+  private top = 0;
+  private static readonly ROWS = 28;
+
   constructor(private app: App) {}
 
   key(e: KeyboardEvent): void {
+    const max = Math.max(0, ACHIEVEMENTS.length - AchievementsScreen.ROWS);
     if (isBack(e) || confirm(e)) this.app.pop();
+    else if (isUp(e)) this.top = Math.max(0, this.top - 1);
+    else if (isDown(e)) this.top = Math.min(max, this.top + 1);
+    else if (e.code === "PageUp") this.top = Math.max(0, this.top - AchievementsScreen.ROWS);
+    else if (e.code === "PageDown") this.top = Math.min(max, this.top + AchievementsScreen.ROWS);
   }
 
   draw(t: Term): void {
@@ -994,7 +1009,8 @@ export class AchievementsScreen implements Screen {
       `Achievements (${earnedCount()} of ${ACHIEVEMENTS.length})`,
       C.gold,
     );
-    ACHIEVEMENTS.forEach((a, i) => {
+    const rows = AchievementsScreen.ROWS;
+    ACHIEVEMENTS.slice(this.top, this.top + rows).forEach((a, i) => {
       const row = 3 + i;
       const when = earned(a.id);
       const unlocks = Object.values(STYLES).some((st) => st.unlock === a.id);
@@ -1003,7 +1019,14 @@ export class AchievementsScreen implements Screen {
       t.text(44, row, a.desc, when ? C.light : C.dim, undefined, 98);
       if (when) t.text(88, row, when, C.dim);
     });
-    const yy = 4 + ACHIEVEMENTS.length;
+    if (ACHIEVEMENTS.length > rows)
+      t.text(
+        72,
+        31,
+        `${this.top + 1}-${Math.min(ACHIEVEMENTS.length, this.top + rows)} of ${ACHIEVEMENTS.length}  (↑↓ scroll)`,
+        C.dim,
+      );
+    const yy = 32;
     let sx = t.text(13, yy, "New styles:", C.gray) + 2;
     for (const st of Object.values(STYLES).filter((x) => x.unlock)) {
       const how = ACHIEVEMENT_BY_ID[st.unlock ?? ""];

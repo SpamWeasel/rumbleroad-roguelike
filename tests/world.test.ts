@@ -1362,3 +1362,288 @@ describe("0.9 features", () => {
     expect(loaded.s.beaten).toEqual([]);
   });
 });
+
+describe("0.10 features", () => {
+  type Hit = {
+    dir: readonly [number, number];
+    verb: string;
+    sound: "punch" | "kick";
+    sure?: boolean;
+  };
+  type Internals = {
+    enterArea(id: string, arrive: string): void;
+    knockOut(e: Enemy): void;
+    playerDown(): void;
+    strike(a: unknown, t: unknown, raw: number, o: Hit): void;
+  };
+  const inside = (g: Game) => g as unknown as Internals;
+  /** A fighter strong enough to stand in the plaza while the test pokes at things. */
+  const champion = (seed: number) => {
+    const g = Game.create("Champ", "street", seed);
+    const p = g.player;
+    for (const k of STAT_KEYS) p.base[k] = 90;
+    p.base.stamina = 300;
+    p.hp = 300;
+    return g;
+  };
+  const clearWave = (g: Game) => {
+    for (const e of [...g.area.enemies]) if (!e.ally && !e.boss) inside(g).knockOut(e);
+  };
+  /** Puts the player at the west end of an open row at least `len` squares long. */
+  const openRow = (g: Game, len: number) => {
+    const p = g.player;
+    // Nothing lying around to pick up instead.
+    g.area.items = [];
+    for (let y = 1; y < g.area.h - 1; y++)
+      for (let x = 2; x < g.area.w - len; x++) {
+        let ok = walkable(g.tileAt(x - 1, y));
+        for (let i = 0; i < len; i++) if (!walkable(g.tileAt(x + i, y))) ok = false;
+        if (!ok) continue;
+        p.x = x;
+        p.y = y;
+        return;
+      }
+    throw new Error("no open row");
+  };
+  const punk = (g: Game, dx: number, n = 1) => {
+    const e = makeGangMember(new Rng(n), "rats", "punk", 1, g.player.x + dx, g.player.y);
+    e.hp = e.maxHp = 999;
+    g.area.enemies.push(e);
+    return e;
+  };
+
+  it("Crown Plaza sits between the steelworks and the tower, locked until Baron Voss falls", () => {
+    expect(AREAS.steelworks.exits[">"].to).toBe("plaza");
+    expect(AREAS.plaza.exits[">"].to).toBe("lobby");
+    expect(AREAS.lobby.exits["<"].to).toBe("plaza");
+    expect(AREAS.plaza.locked).toEqual({ ">": "voss" });
+  });
+
+  it("walking into the plaza starts the Rumble, with the regulars at your side", () => {
+    const g = champion(101);
+    inside(g).enterArea("plaza", "<");
+    expect(g.rumbleOn()).toBe(true);
+    expect(g.rumbleInfo()).toEqual({ wave: 1, waves: 3, crew: 2, foes: 8 });
+    expect(g.events.some((e) => e.type === "scene" && e.boss === "rumble")).toBe(true);
+    const crew = g.area.enemies.filter((e) => e.crew).map((e) => e.name);
+    expect(crew.sort()).toEqual(["Lou", "Officer Delgado"]);
+    expect(g.area.enemies.every((e) => e.awake)).toBe(true);
+  });
+
+  it("everyone you helped shows up: quest friends, your rival, champs, turf and partner", () => {
+    const g = champion(102);
+    g.player.cash = 500;
+    g.hirePartner("ironside");
+    g.s.quests.rosa_recipe = { step: 1, progress: 0, done: true };
+    g.s.rival.wins = 5;
+    g.s.flags.title_club_maple = true;
+    g.s.turf.alleys = { sweeps: 3, held: true, raid: null, swept: 0 };
+    inside(g).enterArea("plaza", "<");
+    const names = g.rumbleRollCall().map((c) => c.name);
+    expect(names[0]).toBe("Ruby Kincaid");
+    expect(names).toEqual(
+      expect.arrayContaining(["Rosa", "Dex Marlowe", "Brick Kowalski", "Lou", "Officer Delgado"]),
+    );
+    expect(g.rumbleRollCall().some((c) => c.title === "from Rustline Alleys")).toBe(true);
+    // 4 extra friends + 2 regulars + your partner; a bigger crew brings out one more Crown a wave.
+    expect(g.rumbleInfo()).toEqual({ wave: 1, waves: 3, crew: 7, foes: 9 });
+    expect(g.ally()?.name).toBe("Ruby Kincaid");
+  });
+
+  it("waves follow one another, Baron Voss leads the last, and beating him wins the Rumble", () => {
+    const g = champion(103);
+    inside(g).enterArea("plaza", "<");
+    clearWave(g);
+    g.wait();
+    expect(g.rumbleInfo()?.wave).toBe(2);
+    expect(g.rumbleInfo()?.foes).toBe(9);
+    clearWave(g);
+    g.wait();
+    expect(g.rumbleInfo()?.wave).toBe(3);
+    const voss = g.area.enemies.find((e) => e.boss) as Enemy;
+    expect(voss.kind).toBe("voss");
+    // Beating the goons isn't enough: he has to go down.
+    clearWave(g);
+    g.wait();
+    expect(g.rumbleOn()).toBe(true);
+    inside(g).knockOut(voss);
+    expect(g.s.flags.voss).toBe(true);
+    expect(g.rumbleOn()).toBe(false);
+    expect(g.s.rumble).toBeNull();
+    expect(ACHIEVEMENT_BY_ID.rumble.check(g)).toBe(true);
+    expect(ACHIEVEMENT_BY_ID.village.check(g)).toBe(false);
+    // Coming back later, the plaza is quiet.
+    inside(g).enterArea("plaza", "<");
+    expect(g.area.enemies.filter((e) => !e.ally)).toHaveLength(0);
+  });
+
+  it("getting knocked out keeps the waves already beaten", () => {
+    const g = champion(104);
+    inside(g).enterArea("plaza", "<");
+    clearWave(g);
+    g.wait();
+    expect(g.s.rumble?.wave).toBe(1);
+    g.player.hp = 0;
+    inside(g).playerDown();
+    expect(g.area.id).toBe("maple");
+    inside(g).enterArea("plaza", "<");
+    expect(g.rumbleInfo()?.wave).toBe(2);
+  });
+
+  it("the crew and the Crowns fight each other without the player lifting a finger", () => {
+    const g = champion(105);
+    g.s.quests.coach_comeback = { step: 2, progress: 0, done: true };
+    g.s.quests.mike_sauce = { step: 2, progress: 0, done: true };
+    inside(g).enterArea("plaza", "<");
+    const total = () => g.area.enemies.filter((e) => !e.ally).reduce((n, e) => n + e.hp, 0);
+    const crewHp = () => g.area.enemies.filter((e) => e.ally).reduce((n, e) => n + e.hp, 0);
+    const before = total();
+    const friends = crewHp();
+    for (let i = 0; i < 40 && g.area.id === "plaza" && g.rumbleInfo()?.wave === 1; i++) g.guard();
+    expect(total()).toBeLessThan(before);
+    expect(crewHp()).toBeLessThan(friends);
+  });
+
+  it("G lifts a floored gang member and T throws them into their friends", () => {
+    const g = champion(106);
+    inside(g).enterArea("alleys", "<");
+    g.area.enemies.length = 0;
+    openRow(g, 8);
+    const p = g.player;
+    const a = punk(g, 1);
+    a.down = 2;
+    const b = punk(g, 3, 2);
+    b.stun = 9;
+    p.facing = [1, 0];
+    expect(g.liftable()).toBe(a);
+    expect(g.grab()).toBe(true);
+    expect(p.carry).toBe(a);
+    expect(g.area.enemies).not.toContain(a);
+    // Hands full: no punching.
+    expect(g.punch([1, 0])).toBe(false);
+    expect(g.throwHeld([1, 0])).toBe(true);
+    expect(p.carry).toBeFalsy();
+    expect(g.area.enemies).toContain(a);
+    expect(a.x).toBe(p.x + 2);
+    expect(a.hp).toBeLessThan(999);
+    expect(b.hp).toBeLessThan(999);
+    expect(g.s.tally.airmail).toBe(1);
+    expect(ACHIEVEMENT_BY_ID.airmail.check(g)).toBe(true);
+  });
+
+  it("someone held overhead wriggles free after a few actions, and a hit shakes them loose", () => {
+    const g = champion(107);
+    inside(g).enterArea("alleys", "<");
+    g.area.enemies.length = 0;
+    openRow(g, 8);
+    const p = g.player;
+    const a = punk(g, 1);
+    a.down = 2;
+    g.grab();
+    expect(p.carry).toBe(a);
+    for (let i = 0; i < 3; i++) g.wait();
+    expect(p.carry).toBeFalsy();
+    expect(g.area.enemies).toContain(a);
+    // Dropped when hit.
+    g.area.enemies.length = 0;
+    const c = punk(g, 1, 5);
+    c.down = 3;
+    g.grab();
+    expect(p.carry).toBe(c);
+    const thug = punk(g, -1, 3);
+    inside(g).strike(thug, p, 5, { dir: [1, 0], verb: "punch", sound: "punch", sure: true });
+    expect(p.carry).toBeFalsy();
+    expect(g.area.enemies).toContain(c);
+    // Bosses are too heavy to lift at all.
+    g.area.enemies.length = 0;
+    const boss = punk(g, 1, 4);
+    boss.boss = true;
+    boss.stun = 3;
+    expect(g.liftable()).toBeUndefined();
+  });
+
+  it("throwing someone into the water knocks them out", () => {
+    const g = champion(108);
+    inside(g).enterArea("harbor", "<");
+    const p = g.player;
+    // Stand on the boardwalk with water to the south.
+    let found = false;
+    for (let y = 1; y < g.area.h - 1 && !found; y++)
+      for (let x = 1; x < g.area.w - 1 && !found; x++)
+        if (walkable(g.tileAt(x, y)) && g.tileAt(x, y + 1) === T.WATER) {
+          p.x = x;
+          p.y = y;
+          found = true;
+        }
+    expect(found).toBe(true);
+    p.carry = makeGangMember(new Rng(5), "vipers", "punk", 4, 0, 0);
+    p.carryTurns = 4;
+    const kos = p.kos;
+    expect(g.throwHeld([0, 1])).toBe(true);
+    expect(p.kos).toBe(kos + 1);
+    expect(g.s.tally.splash).toBe(1);
+    expect(ACHIEVEMENT_BY_ID.splash.check(g)).toBe(true);
+  });
+
+  it("knock-outs in a row make a streak, but only the player's own", () => {
+    const g = champion(109);
+    inside(g).enterArea("alleys", "<");
+    g.area.enemies.length = 0;
+    openRow(g, 8);
+    const p = g.player;
+    const a = punk(g, 1);
+    const b = punk(g, -1, 2);
+    for (const e of [a, b]) {
+      e.hp = 1;
+      e.down = 9;
+    }
+    p.guts = 0;
+    g.punch([1, 0]);
+    expect(p.streak?.n).toBe(1);
+    g.punch([-1, 0]);
+    expect(p.streak?.n).toBe(2);
+    expect(g.s.tally.bestStreak).toBe(2);
+    expect(p.guts).toBeGreaterThanOrEqual(2);
+    // A friend's knock-out leaves the streak alone.
+    const pal = punk(g, 3, 3);
+    pal.ally = "crew";
+    pal.crew = "lou";
+    const c = punk(g, 4, 4);
+    c.hp = 1;
+    inside(g).strike(pal, c, 500, { dir: [1, 0], verb: "sock", sound: "punch", sure: true });
+    expect(g.area.enemies).not.toContain(c);
+    expect(p.streak?.n).toBe(2);
+    g.s.tally.bestStreak = 4;
+    expect(ACHIEVEMENT_BY_ID.rampage.check(g)).toBe(true);
+  });
+
+  it("long attack verbs read properly in the log", () => {
+    const g = champion(110);
+    inside(g).enterArea("alleys", "<");
+    g.area.enemies.length = 0;
+    openRow(g, 8);
+    const thug = punk(g, 1);
+    inside(g).strike(thug, g.player, 5, {
+      dir: [-1, 0],
+      verb: "swing the pipe at",
+      sound: "punch",
+      sure: true,
+    });
+    expect(g.s.log[g.s.log.length - 1].text).toContain("swings the pipe at you");
+  });
+
+  it("loads saves from 0.9: players already inside the tower skip the Rumble", () => {
+    const g = Game.create("Old", "street", 111);
+    const old = JSON.parse(g.save());
+    old.version = 9;
+    expect(Game.load(JSON.stringify(old)).s.flags.voss).toBeUndefined();
+    old.visits.lobby = 1;
+    const loaded = Game.load(JSON.stringify(old));
+    expect(loaded.s.flags.voss).toBe(true);
+    expect(loaded.s.rumble).toBeNull();
+    // Someone held overhead survives a save.
+    const h = champion(112);
+    h.player.carry = makeGangMember(new Rng(6), "rats", "punk", 1, 0, 0);
+    expect(Game.load(h.save()).player.carry?.title).toBe("Rat Punk");
+  });
+});

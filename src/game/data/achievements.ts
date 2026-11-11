@@ -46,6 +46,18 @@ export const ACHIEVEMENTS: Achievement[] = [
     check: (g) => !!g.s.flags.kilo,
   },
   {
+    id: "rumble",
+    name: "The Rumble",
+    desc: "Win the Rumble at Crown Plaza.",
+    check: (g) => !!g.s.flags.voss && g.s.tally.rumbleCrew !== undefined,
+  },
+  {
+    id: "village",
+    name: "It Takes a Village",
+    desc: "Win the Rumble with 8 or more friends at your side.",
+    check: (g) => (g.s.tally.rumbleCrew ?? 0) >= 8,
+  },
+  {
     id: "varga",
     name: "The City Is Free",
     desc: "Beat Duke Varga on the roof of Crown Tower.",
@@ -135,6 +147,24 @@ export const ACHIEVEMENTS: Achievement[] = [
     desc: "Knock out every kind of gang member (knife fighters, medics, riders...).",
     check: (g) =>
       Object.keys(RANKS).every((r) => (g.s.beaten ?? []).some((b) => b.endsWith(`:${r}`))),
+  },
+  {
+    id: "airmail",
+    name: "Air Mail",
+    desc: "Throw a gang member into another gang member.",
+    check: (g) => (g.s.tally.airmail ?? 0) >= 1,
+  },
+  {
+    id: "splash",
+    name: "Splashdown",
+    desc: "Throw a gang member into the water or a pit.",
+    check: (g) => (g.s.tally.splash ?? 0) >= 1,
+  },
+  {
+    id: "rampage",
+    name: "Rampage",
+    desc: "Knock out 4 gang members in a row without a pause.",
+    check: (g) => (g.s.tally.bestStreak ?? 0) >= 4,
   },
   {
     id: "samaritan",

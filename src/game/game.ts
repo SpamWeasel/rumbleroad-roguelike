@@ -15,6 +15,7 @@ import { BOARDS, BYSTANDERS, CLIENTS, type Job, PARCELS, RIVAL, WANTED_NAMES } f
 import { OBJECTS } from "./data/objects";
 import { PARTNER_BY_GYM, PARTNER_CUT, PARTNER_GLYPH, PARTNERS } from "./data/partners";
 import { BOSS_SCENES, QUEST_BY_ID, QUESTS, type QuestDef, type QuestStep } from "./data/quests";
+import { CREW_PER_EXTRA_FOE, RUMBLE_AREA, RUMBLE_WAVES, rumbleCrew } from "./data/rumble";
 import {
   PAWN_BUYS,
   PAWN_DISCOUNT,
@@ -71,6 +72,7 @@ import {
   AREAS,
   buildArea,
   hashString,
+  makeBoss,
   makeGangMember,
   newEnemyId,
   reserveEnemyIds,
@@ -87,8 +89,9 @@ import {
  * Version 7 added turf, raids and daily runs.
  * Version 8 added side quests.
  * Version 9 added the Street Guide (dishes tried, gang members beaten).
+ * Version 10 added Crown Plaza and the Rumble.
  */
-export const SAVE_VERSION = 9;
+export const SAVE_VERSION = 10;
 /** A turn is a minute. New games start at 8:00; night runs from 21:00 to 5:00. */
 export const DAY_START = 8 * 60;
 export const NIGHT_FROM = 21 * 60;
@@ -99,6 +102,10 @@ export const POCKET_SIZE = 8;
 /** Towns on the bus line, in order; each stop along the way costs BUS_FARE. */
 const BUS_TOWNS = ["maple", "harbor", "neon", "ashgate"];
 const BUS_FARE = 8;
+/** Actions you can hold a gang member over your head before they wriggle free. */
+const CARRY_TURNS = 4;
+/** Knock-outs this many turns apart or less chain into a streak. */
+const STREAK_TURNS = 2;
 /** Chance a new gang member has a trait: base plus this much per depth. */
 const TRAIT_CHANCE = 0.05;
 const TRAIT_DEPTH = 0.008;
@@ -168,11 +175,22 @@ export interface GameState {
     turf?: number;
     dings?: number;
     quests?: number;
+    /** Gang members thrown into other gang members, and into water or pits. */
+    airmail?: number;
+    splash?: number;
+    bestStreak?: number;
+    /** Friends at your side when you won the Rumble. */
+    rumbleCrew?: number;
   };
   /** Carnival tickets, spent at the Sunset Pier prize booth. */
   tickets: number;
   /** Side quests you've taken: the step you're on, progress on it, and whether it's finished. */
   quests: Record<string, { step: number; progress: number; done: boolean }>;
+  /**
+   * The Rumble at Crown Plaza while it's unfinished: the wave you're on, how many friends came,
+   * and the extra gang members per wave a big crew brings out.
+   */
+  rumble?: { wave: number; crew: number; bonus: number } | null;
   /** Street Guide: everything you've eaten or used, and "gang:rank" for each kind you've beaten. */
   tried: string[];
   beaten: string[];
@@ -217,6 +235,24 @@ export interface ShopLine {
   tickets?: boolean;
 }
 
+/** How a hit lands: see Game.strike. */
+interface StrikeOpts {
+  dir: Dir;
+  verb: string;
+  sound: "punch" | "kick" | "slam";
+  knock?: number;
+  stun?: number;
+  down?: number;
+  sure?: boolean;
+  accuracy?: number;
+  /** Ignore defense (explosions). */
+  raw?: boolean;
+  /** A basic punch or kick that counts toward a combo. */
+  combo?: boolean;
+  /** A knife cut: the target keeps bleeding (the player only). */
+  bleed?: boolean;
+}
+
 const cheb = (a: { x: number; y: number }, b: { x: number; y: number }) =>
   Math.max(Math.abs(a.x - b.x), Math.abs(a.y - b.y));
 const sign = (n: number) => (n > 0 ? 1 : n < 0 ? -1 : 0);
@@ -234,6 +270,10 @@ export class Game {
   /** A short hint for the screen ("Nobody in reach.") that isn't worth a log line. */
   hint: { text: string; serial: number } | null = null;
   private hintSerial = 0;
+  /** Whether what's happening right now is the player's doing (for knock-out streaks). */
+  private credit = true;
+  /** Distance to the nearest gang member, for your crew; worked out once a turn when needed. */
+  private foeMap: Int32Array | null = null;
   /** Cash lost on the last knock-out, for the "knocked out" notice. */
   lastKoLoss = 0;
 
@@ -255,7 +295,7 @@ export class Game {
       this.area.enemies = snap.enemies;
       this.area.items = snap.items;
       decodeSeen(snap.seen, this.area.seen);
-      reserveEnemyIds(Math.max(0, ...snap.enemies.map((e) => e.id)));
+      reserveEnemyIds(Math.max(state.player.carry?.id ?? 0, ...snap.enemies.map((e) => e.id)));
     } else {
       this.placeGivers();
       for (const e of this.area.enemies) this.toughen(e);
@@ -431,6 +471,12 @@ export class Game {
       // 0.8 saves: an empty Street Guide.
       state.tried = [];
       state.beaten = [];
+      state.version = 9;
+    }
+    if (state.version === 9) {
+      // 0.9 saves: Crown Plaza is new. Anyone already inside the tower fought their way in.
+      if (state.visits?.lobby || state.visits?.roof || state.flags?.varga) state.flags.voss = true;
+      state.rumble = null;
       state.version = SAVE_VERSION;
     }
     if (state.version !== SAVE_VERSION)
@@ -631,7 +677,13 @@ export class Game {
 
   /** Your partner, if they're in this area with you. */
   ally(): Enemy | undefined {
-    return this.area.enemies.find((e) => e.ally);
+    return this.area.enemies.find((e) => e.ally && !e.crew);
+  }
+
+  /** Every gang member here, counting one you're carrying over your head. */
+  private everyone(): Enemy[] {
+    const carried = this.s.player.carry;
+    return carried ? [...this.area.enemies, carried] : this.area.enemies;
   }
 
   private fighterAt(x: number, y: number): Fighter | undefined {
@@ -715,6 +767,10 @@ export class Game {
 
   private enterArea(id: string, arrive: string): void {
     const s = this.s;
+    if (s.player.carry) {
+      this.log(`${s.player.carry.name} wriggles free and runs for it.`, C.gray);
+      s.player.carry = null;
+    }
     this.stashAlly();
     s.visits[id] = (s.visits[id] ?? 0) + 1;
     const night = this.isNight();
@@ -753,6 +809,7 @@ export class Game {
     }
     this.placeGivers();
     this.populateStreet();
+    if (id === RUMBLE_AREA && !s.flags.voss) this.startRumble();
     this.turfNote();
     this.sound("door");
     this.events.push({ type: "area" });
@@ -780,6 +837,7 @@ export class Game {
 
   private beginAction(): boolean {
     if (this.s.over) return false;
+    this.credit = true;
     this.s.player.guard = false;
     return true;
   }
@@ -802,6 +860,7 @@ export class Game {
       this.passTurn();
     }
     this.checkBout();
+    this.checkRumble();
     for (const { def, step } of this.activeSteps())
       if (step.kind === "check" && step.test(this)) this.advanceQuest(def.id);
   }
@@ -816,6 +875,18 @@ export class Game {
     for (const b of p.buffs) b.turns--;
     for (const b of p.buffs.filter((b) => b.turns <= 0)) this.log(`${b.name} wears off.`, C.gray);
     p.buffs = p.buffs.filter((b) => b.turns > 0);
+    // Someone held over your head wriggles free before long.
+    if (p.carry) {
+      p.carryTurns = (p.carryTurns ?? 1) - 1;
+      if (p.carryTurns <= 0) {
+        const e = this.dropCarry();
+        if (e) {
+          e.down = 0;
+          e.stun = 0;
+          this.log(`${e.name} wriggles free!`, C.orange);
+        }
+      }
+    }
     if (p.bleed && !this.s.over) {
       p.bleed.turns--;
       const dmg = p.bleed.dmg;
@@ -829,7 +900,17 @@ export class Game {
     p.hp = Math.min(p.hp, this.maxHp());
     const pal = this.ally();
     if (pal && p.regenClock % 6 === 0) pal.hp = Math.min(pal.maxHp, pal.hp + 1);
-    this.chase = distanceMap(this.area.w, this.area.h, this.walk, [p], 40);
+    // In the Rumble the gangs go for whoever's nearest, not just you.
+    const targets = this.rumbleOn() ? [p, ...this.area.enemies.filter((e) => e.ally)] : [p];
+    // The plaza is wide: let everyone find each other from end to end.
+    this.chase = distanceMap(
+      this.area.w,
+      this.area.h,
+      this.walk,
+      targets,
+      targets.length > 1 ? 120 : 40,
+    );
+    this.foeMap = null;
     this.updateView();
     this.runEnemies();
     this.updateView();
@@ -846,6 +927,7 @@ export class Game {
 
   private runEnemies(): void {
     const p = this.s.player;
+    this.credit = false;
     for (let n = 0; n < 400 && !this.s.over; n++) {
       let next: Enemy | undefined;
       for (const e of this.area.enemies)
@@ -897,10 +979,10 @@ export class Game {
     const foe = this.enemyAt(nx, ny);
     if (foe) {
       const held = p.held ? OBJECTS[p.held] : null;
-      return held && !held.swing ? this.kick([dx, dy]) : this.punch([dx, dy]);
+      return p.carry || (held && !held.swing) ? this.kick([dx, dy]) : this.punch([dx, dy]);
     }
-    const pal = this.ally();
-    if (pal && pal.x === nx && pal.y === ny) {
+    const pal = this.area.enemies.find((e) => e.ally && e.x === nx && e.y === ny);
+    if (pal) {
       if (!canStep(this.walk, p.x, p.y, dx, dy)) return false;
       pal.x = p.x;
       pal.y = p.y;
@@ -994,11 +1076,69 @@ export class Game {
     }
   }
 
-  /** G: pick up (or swap for) the object here, or drop what you're holding. */
+  /**
+   * A knocked-down or dazed gang member next to you that you could lift over your head (the one
+   * you're facing first). Bosses are too heavy.
+   */
+  liftable(): Enemy | undefined {
+    const p = this.s.player;
+    const ok = (e: Enemy | undefined) =>
+      e && !e.boss && (e.down > 0 || e.stun > 0) ? e : undefined;
+    const front = ok(this.enemyAt(p.x + p.facing[0], p.y + p.facing[1]));
+    if (front) return front;
+    for (const d of DIRS8) {
+      const e = ok(this.enemyAt(p.x + d[0], p.y + d[1]));
+      if (e) return e;
+    }
+    return undefined;
+  }
+
+  /** Puts whoever you're carrying back on the ground beside you. */
+  private dropCarry(): Enemy | null {
+    const p = this.s.player;
+    const e = p.carry;
+    if (!e) return null;
+    p.carry = null;
+    const spot = this.spotsNear(p, 1)[0] ?? this.spotsNear(p, 2)[0] ?? this.farSpots(1)[0];
+    if (!spot) return null;
+    e.x = spot.x;
+    e.y = spot.y;
+    e.time = p.time + 100;
+    e.awake = true;
+    this.area.enemies.push(e);
+    return e;
+  }
+
+  /**
+   * G: pick up (or swap for) the object here, or drop what you're holding. With empty hands and
+   * nothing at your feet, G lifts a knocked-down or dazed gang member next to you.
+   */
   grab(): boolean {
     if (!this.beginAction()) return false;
     const p = this.s.player;
+    if (p.carry) {
+      const e = this.dropCarry();
+      if (e) this.log(`You dump ${e.name} on the ground.`, C.gray);
+      this.endAction(COST.grab);
+      return true;
+    }
     const obj = this.area.items.find((i) => i.kind === "object" && i.x === p.x && i.y === p.y);
+    const foe = !obj && !p.held ? this.liftable() : undefined;
+    if (foe) {
+      this.area.enemies.splice(this.area.enemies.indexOf(foe), 1);
+      foe.windup = null;
+      p.carry = foe;
+      p.carryTurns = CARRY_TURNS;
+      p.combo = undefined;
+      this.log(
+        `You heave ${foe.name} over your head! (T to throw them, G to put them down)`,
+        C.yellow,
+      );
+      this.pop(p.x, p.y - 1, "LIFT!", C.yellow);
+      this.sound("special");
+      this.endAction(COST.grab);
+      return true;
+    }
     if (!obj && !p.held) {
       this.notice("There's nothing here to pick up.");
       return false;
@@ -1052,6 +1192,10 @@ export class Game {
     const target = this.enemyAt(p.x + dir[0], p.y + dir[1]);
     if (!target) {
       this.notice("Nobody in reach.");
+      return false;
+    }
+    if (p.carry) {
+      this.notice(`Your hands are full with ${p.carry.name}! Throw them (T) or kick (K).`);
       return false;
     }
     const held = p.held ? OBJECTS[p.held] : null;
@@ -1117,6 +1261,10 @@ export class Game {
   technique(index: number, dir: Dir | null): boolean {
     if (!this.beginAction()) return false;
     const p = this.s.player;
+    if (p.carry) {
+      this.notice(`Your hands are full with ${p.carry.name}! Throw them (T) or put them down (G).`);
+      return false;
+    }
     const check = this.canUseTechnique(index);
     if (!check.ok) {
       this.notice(check.why ?? "");
@@ -1371,9 +1519,103 @@ export class Game {
   }
 
   /** T: throw what you're holding in a direction. */
+  /** Hurls the gang member you're carrying: into their friends, a wall, or the water. */
+  private throwBody(dir: Dir): boolean {
+    const p = this.s.player;
+    const e = p.carry as Enemy;
+    p.facing = dir;
+    const reach = Math.max(
+      2,
+      Math.min(5, 2 + Math.floor((this.stat("strength") - e.stats.strength * 0.5) / 8)),
+    );
+    let x = p.x;
+    let y = p.y;
+    let hit: Enemy | undefined;
+    let fell = false;
+    let wall = false;
+    for (let i = 0; i < reach; i++) {
+      const nx = x + dir[0];
+      const ny = y + dir[1];
+      const tile = this.tileAt(nx, ny);
+      if (TILES[tile].hazard) {
+        x = nx;
+        y = ny;
+        fell = true;
+        break;
+      }
+      const other = this.fighterAt(nx, ny);
+      if (other) {
+        if (other !== p && !(other as Enemy).ally) hit = other as Enemy;
+        break;
+      }
+      if (
+        !walkable(tile) ||
+        tile === T.EXIT ||
+        tile === T.DOOR ||
+        (dir[0] && dir[1] && !canStep(this.walk, x, y, dir[0], dir[1]))
+      ) {
+        wall = true;
+        break;
+      }
+      x = nx;
+      y = ny;
+      this.events.push({ type: "flash", x, y, color: e.color });
+    }
+    // They need somewhere to land.
+    let land = { x, y };
+    if (!fell && x === p.x && y === p.y) {
+      const spot = this.spotsNear(p, 1)[0];
+      if (!spot) {
+        this.notice("There's no room to throw them!");
+        return false;
+      }
+      land = spot;
+    }
+    p.carry = null;
+    e.x = land.x;
+    e.y = land.y;
+    e.time = p.time + 100;
+    e.awake = true;
+    this.area.enemies.push(e);
+    this.log(`You hurl ${e.name}${hit ? ` into ${hit.name}` : ""}!`, C.yellow);
+    this.sound("throw");
+    if (fell) {
+      this.s.tally.splash = (this.s.tally.splash ?? 0) + 1;
+      this.fall(e);
+      this.endAction(COST.throw);
+      return true;
+    }
+    const raw = this.strengthRaw() * (wall ? 2 : 1.6);
+    if (wall) {
+      this.pop(e.x, e.y - 1, "SLAM", C.orange);
+      this.events.push({ type: "impact", power: 2 });
+    }
+    this.strike(p, e, raw, {
+      dir,
+      verb: wall ? "slam" : "throw down",
+      sound: "slam",
+      sure: true,
+      down: 2,
+    });
+    if (hit && hit.hp > 0) {
+      this.s.tally.airmail = (this.s.tally.airmail ?? 0) + 1;
+      this.strike(p, hit, raw * 0.7, {
+        dir,
+        verb: "bowl over",
+        sound: "slam",
+        sure: true,
+        down: 1,
+        knock: 1,
+      });
+    }
+    this.endAction(COST.throw);
+    return true;
+  }
+
   throwHeld(dir: Dir): boolean {
     if (!this.beginAction()) return false;
     const p = this.s.player;
+    if (p.carry) return this.throwBody(dir);
     if (!p.held) {
       this.notice("You're not holding anything. Stand on an object and press G.");
       return false;
@@ -1565,30 +1807,23 @@ export class Game {
   // -------------------------------------------------------------------------------------------
   // Hitting things
 
-  private strike(
-    attacker: Fighter,
-    target: Fighter,
-    raw: number,
-    o: {
-      dir: Dir;
-      verb: string;
-      sound: "punch" | "kick" | "slam";
-      knock?: number;
-      stun?: number;
-      down?: number;
-      sure?: boolean;
-      accuracy?: number;
-      /** Ignore defense (explosions). */
-      raw?: boolean;
-      /** A basic punch or kick that counts toward a combo. */
-      combo?: boolean;
-      /** A knife cut: the target keeps bleeding (the player only). */
-      bleed?: boolean;
-    },
-  ): void {
+  private strike(attacker: Fighter, target: Fighter, raw: number, o: StrikeOpts): void {
+    // Knock-outs that follow from this hit (slams, crashes) count for whoever threw it.
+    const was = this.credit;
+    this.credit = attacker === this.s.player;
+    try {
+      this.strikeNow(attacker, target, raw, o);
+    } finally {
+      this.credit = was;
+    }
+  }
+
+  private strikeNow(attacker: Fighter, target: Fighter, raw: number, o: StrikeOpts): void {
     const p = this.s.player;
     const byPlayer = attacker === p;
     const friendly = byPlayer || !!(attacker as Enemy).ally;
+    // In the Rumble, fights that don't involve you stay out of the log (and off the speakers).
+    const quiet = !byPlayer && target !== p && this.rumbleOn();
     // Someone already knocked out can't keep swinging (a counter can drop them mid-flurry).
     if (!byPlayer && attacker.hp <= 0) return;
     if (target === p && !friendly && cheb(attacker, p) === 1 && p.buffs.some((b) => b.counter)) {
@@ -1621,10 +1856,10 @@ export class Game {
         if (o.combo) p.combo = undefined;
       } else if (target === p)
         this.log(`${this.nameOf(attacker)} swings at you and misses.`, C.gray);
-      else
+      else if (!quiet)
         this.log(`${this.nameOf(attacker)} swings at ${this.nameOf(target)} and misses.`, C.gray);
       this.pop(target.x, target.y, "miss", C.gray);
-      this.sound("miss");
+      if (!quiet) this.sound("miss");
       return;
     }
     let dmg = o.raw ? raw : raw * (30 / (30 + def));
@@ -1703,10 +1938,18 @@ export class Game {
             : C.orange,
     );
     if (finisher) this.pop(target.x, target.y - 1, "COMBO!", C.yellow);
-    this.sound(target === p ? "hurt" : o.sound);
+    if (!quiet) this.sound(target === p ? "hurt" : o.sound);
+    // A hit knocks whoever you're carrying out of your hands (unless you're braced).
+    if (target === p && p.carry && !p.guard) {
+      const dropped = this.dropCarry();
+      if (dropped) {
+        dropped.down = Math.max(dropped.down, 1);
+        this.log(`You drop ${dropped.name}!`, C.orange);
+      }
+    }
     // Big hits shake the screen; whoever hit you flashes so you can see who it was.
     const targetMax = target === p ? this.maxHp() : (target as Enemy).maxHp;
-    if (crit || finisher || amount >= targetMax * 0.25)
+    if (!quiet && (crit || finisher || amount >= targetMax * 0.25))
       this.events.push({ type: "impact", power: amount >= targetMax * 0.4 || finisher ? 2 : 1 });
     if (target === p)
       this.events.push({ type: "flash", x: attacker.x, y: attacker.y, color: C.orange });
@@ -1725,10 +1968,11 @@ export class Game {
         C.red,
       );
     } else {
-      this.log(
-        `${this.nameOf(attacker)} ${thirdPerson(o.verb)} ${this.nameOf(target)} for ${amount}.`,
-        friendly ? C.lime : C.orange,
-      );
+      if (!quiet)
+        this.log(
+          `${this.nameOf(attacker)} ${thirdPerson(o.verb)} ${this.nameOf(target)} for ${amount}.`,
+          friendly ? C.lime : C.orange,
+        );
       const e = target as Enemy;
       if (friendly && !e.awake) this.wake(e, false);
     }
@@ -1808,7 +2052,7 @@ export class Game {
   }
 
   private removeAlly(): void {
-    this.area.enemies = this.area.enemies.filter((e) => !e.ally);
+    this.area.enemies = this.area.enemies.filter((e) => !e.ally || e.crew);
   }
 
   /** Puts your partner beside you, if they're with you and on their feet. */
@@ -1854,6 +2098,12 @@ export class Game {
   private allyDown(e: Enemy): void {
     const idx = this.area.enemies.indexOf(e);
     if (idx >= 0) this.area.enemies.splice(idx, 1);
+    if (e.crew) {
+      this.log(`${e.name} is down! Friends drag them clear of the fight.`, C.orange);
+      this.pop(e.x, e.y, "KO", e.color);
+      this.sound("ko");
+      return;
+    }
     if (this.s.partner) {
       this.s.partner.out = true;
       this.s.partner.hp = 0;
@@ -2085,6 +2335,7 @@ export class Game {
         this.log(`${other.name} runs for it!`, C.gray);
       }
       this.area.enemies = this.area.enemies.filter((o) => o.boss || o.ally);
+      if (b.id === "voss") this.rumbleWon();
       if (b.id === "varga") {
         this.s.over = "won";
         this.events.push({ type: "win" });
@@ -2107,6 +2358,7 @@ export class Game {
       const kind = `${e.gang}:${e.kind}`;
       if (!this.s.beaten.includes(kind)) this.s.beaten.push(kind);
     }
+    this.koStreak();
     this.jobProgress(e, at);
     this.eventProgress(e);
     this.raidProgress(e);
@@ -2161,6 +2413,8 @@ export class Game {
     p.stun = 0;
     p.down = 0;
     p.held = null;
+    p.carry = null;
+    p.streak = undefined;
     p.buffs = [];
     for (const job of this.s.jobs.filter((j) => j.kind === "courier")) {
       this.log(
@@ -2209,7 +2463,7 @@ export class Game {
     }
     if (e.ally) {
       if (e.cooldown > 0) e.cooldown--;
-      e.time += Math.round(this.allyTurn(e) * spd);
+      e.time += Math.round((e.crew ? this.crewTurn(e) : this.allyTurn(e)) * spd);
       return;
     }
     const dist = cheb(e, p);
@@ -2253,9 +2507,9 @@ export class Game {
       }
     }
 
-    // Squaring off with your partner instead of you.
-    const pal = this.ally();
-    if (pal && dist > 1 && cheb(pal, e) === 1 && this.rng.chance(0.8)) {
+    // Squaring off with one of your friends instead of you.
+    const pal = this.area.enemies.find((o) => o.ally && cheb(o, e) === 1);
+    if (pal && dist > 1 && this.rng.chance(0.8)) {
       const d: Dir = [sign(pal.x - e.x), sign(pal.y - e.y)];
       const kick = this.rng.chance(0.35);
       this.strike(e, pal, kick ? this.enemyKick(e) : this.enemyPunch(e), {
@@ -2509,7 +2763,9 @@ export class Game {
               ? "flurry"
               : e.kind === "kilo"
                 ? "maul"
-                : "slam";
+                : e.kind === "voss"
+                  ? "hammer"
+                  : "slam";
         if (move === "maul") {
           this.log(`${e.name} snarls and tears into you!`, e.color);
           for (let i = 0; i < 3 && this.s.player.hp > 0 && cheb(e, p) === 1 && e.hp > 0; i++)
@@ -2531,7 +2787,7 @@ export class Game {
         this.log(
           move === "crusher"
             ? `${e.name} raises both fists high - everything around him is about to get flattened!`
-            : `${e.name} rears back for a ${move === "slam" ? "Rat Slam" : "big hit"}! (step away or guard)`,
+            : `${e.name} rears back for a ${move === "slam" ? "Rat Slam" : move === "hammer" ? "baton smash" : "big hit"}! (step away or guard)`,
           C.orange,
         );
         return 60;
@@ -2554,7 +2810,7 @@ export class Game {
       dist >= 2 &&
       dist <= 4 &&
       e.cooldown === 0 &&
-      (e.kind === "mara" || e.kind === "varga" || e.kind === "kilo")
+      (e.kind === "mara" || e.kind === "varga" || e.kind === "kilo" || e.kind === "voss")
     ) {
       e.cooldown = 4;
       let moved = 0;
@@ -2832,7 +3088,7 @@ export class Game {
   private checkSweep(): void {
     const a = this.area;
     if (a.kind !== "district" || !TURF_AREAS.includes(a.id) || this.s.bout) return;
-    if (a.enemies.some((e) => !e.ally && e.gang)) return;
+    if (this.everyone().some((e) => !e.ally && e.gang)) return;
     const visit = this.s.visits[a.id] ?? 1;
     const t = this.turfOf(a.id);
     if (t.swept === visit) return;
@@ -3593,6 +3849,221 @@ export class Game {
   }
 
   // -------------------------------------------------------------------------------------------
+  // The Rumble (data/rumble.ts)
+
+  /** Whether the Rumble is going on around you right now. */
+  rumbleOn(): boolean {
+    return !!this.s.rumble && this.area.id === RUMBLE_AREA && !this.s.flags.voss;
+  }
+
+  /** The Rumble's numbers for the screen: wave, friends standing and gang members left. */
+  rumbleInfo(): { wave: number; waves: number; crew: number; foes: number } | null {
+    const r = this.s.rumble;
+    if (!r || !this.rumbleOn()) return null;
+    return {
+      wave: r.wave + 1,
+      waves: RUMBLE_WAVES.length,
+      crew: this.area.enemies.filter((e) => e.ally).length,
+      foes: this.everyone().filter((e) => !e.ally).length,
+    };
+  }
+
+  /** Everyone who came to fight beside you, your partner first, for the roll call. */
+  rumbleRollCall(): { name: string; title: string; color: Color; line: string }[] {
+    const out = rumbleCrew(this).map((c) => ({
+      name: c.name,
+      title: c.title,
+      color: c.color,
+      line: c.line,
+    }));
+    const pt = this.s.partner;
+    const def = pt && !pt.out ? PARTNERS[pt.id] : null;
+    if (def)
+      out.unshift({
+        name: def.name,
+        title: "your partner",
+        color: def.color,
+        line: "Wouldn't miss it. Back to back, like always.",
+      });
+    return out;
+  }
+
+  /** You walk into Crown Plaza: your crew forms up and the Crowns come out. */
+  private startRumble(): void {
+    const s = this.s;
+    const p = s.player;
+    let friends = 0;
+    for (const c of rumbleCrew(this)) {
+      const spot = this.spotsNear(p, 2)[0] ?? this.spotsNear(p, 4)[0];
+      if (!spot) break;
+      const stats = {} as Stats;
+      for (const k of ALL_STATS) stats[k] = Math.max(4, Math.round(p.base[k] * c.share));
+      this.area.enemies.push({
+        id: newEnemyId(),
+        x: spot.x,
+        y: spot.y,
+        hp: stats.stamina,
+        maxHp: stats.stamina,
+        time: p.time + 20 + friends * 7,
+        stun: 0,
+        down: 0,
+        kind: "crew",
+        name: c.name,
+        title: c.title,
+        glyph: PARTNER_GLYPH,
+        color: c.color,
+        stats,
+        ai: "brawler",
+        awake: true,
+        windup: null,
+        cash: 0,
+        boss: false,
+        cooldown: 0,
+        ally: "crew",
+        crew: c.id,
+      });
+      friends++;
+    }
+    const bonus = Math.floor(Math.max(0, friends - 2) / CREW_PER_EXTRA_FOE);
+    s.rumble = { wave: s.rumble?.wave ?? 0, crew: friends + (this.ally() ? 1 : 0), bonus };
+    if (!s.flags.met_rumble) {
+      s.flags.met_rumble = true;
+      this.events.push({ type: "scene", boss: "rumble" });
+    } else
+      this.log(
+        `The Crowns still hold the plaza. Your crew forms up again. (Wave ${s.rumble.wave + 1} of ${RUMBLE_WAVES.length})`,
+        C.yellow,
+      );
+    this.spawnRumbleWave();
+  }
+
+  /** The next wave comes out of the tower doors (Baron Voss leads the last one). */
+  private spawnRumbleWave(): void {
+    const r = this.s.rumble;
+    if (!r) return;
+    const a = this.area;
+    const p = this.s.player;
+    const wave = RUMBLE_WAVES[r.wave];
+    const last = r.wave === RUMBLE_WAVES.length - 1;
+    // By the doors, on the far side from you.
+    const spots: { x: number; y: number }[] = [];
+    for (let y = 1; y < a.h - 1; y++)
+      for (let x = a.w - 16; x < a.w - 1; x++)
+        if (this.free(x, y) && cheb({ x, y }, p) >= 6) spots.push({ x, y });
+    this.rng.shuffle(spots);
+    if (spots.length < wave.count + r.bonus + 1) spots.push(...this.farSpots(8));
+    if (last) {
+      const at = spots.shift();
+      if (at) {
+        const boss = makeBoss("voss", at.x, at.y);
+        this.toughen(boss);
+        boss.awake = true;
+        boss.time = p.time + 80;
+        a.enemies.push(boss);
+        this.s.flags.met_voss = true;
+      }
+    }
+    for (let i = 0; i < wave.count + r.bonus; i++) {
+      const at = spots.shift();
+      if (!at) break;
+      const e = makeGangMember(
+        this.rng,
+        a.gang ?? "crowns",
+        this.rng.pick(wave.ranks),
+        a.depth,
+        at.x,
+        at.y,
+      );
+      e.event = "rumble";
+      this.toughen(e);
+      e.awake = true;
+      e.time = p.time + this.rng.int(20, 120);
+      a.enemies.push(e);
+    }
+    this.log(
+      `${wave.hello} (${last ? "Final wave" : `Wave ${r.wave + 1} of ${RUMBLE_WAVES.length}`})`,
+      last ? C.red : C.yellow,
+    );
+    this.sound("door");
+  }
+
+  /** When a wave is beaten, everyone catches their breath and the next one comes. */
+  private checkRumble(): void {
+    const r = this.s.rumble;
+    if (!r || this.s.over || !this.rumbleOn()) return;
+    if (r.wave >= RUMBLE_WAVES.length - 1 || this.everyone().some((e) => !e.ally)) return;
+    r.wave++;
+    const p = this.s.player;
+    for (const e of this.area.enemies)
+      if (e.ally) e.hp = Math.min(e.maxHp, e.hp + Math.round(e.maxHp * 0.25));
+    p.guts = this.maxGuts();
+    this.log("The plaza goes quiet for a moment. Your crew catches its breath.", C.lime);
+    this.spawnRumbleWave();
+  }
+
+  /** Baron Voss is down: the plaza is yours and the tower doors are open. */
+  private rumbleWon(): void {
+    const standing = this.area.enemies.filter((e) => e.ally).length;
+    this.s.tally.rumbleCrew = this.s.rumble?.crew ?? standing;
+    this.s.rumble = null;
+    this.log(
+      `THE PLAZA IS YOURS! ${standing} of your crew are still standing, and the whole neighborhood is cheering.`,
+      C.yellow,
+    );
+    this.log("The tower doors stand open. Duke Varga is waiting at the top.", C.gold);
+    this.events.push({ type: "impact", power: 3 });
+    this.sound("levelup");
+  }
+
+  /** A friend at the Rumble: fight whoever's next to them, else head for the nearest Crown. */
+  private crewTurn(e: Enemy): number {
+    const p = this.s.player;
+    const foes = this.area.enemies.filter((o) => !o.ally);
+    const near = foes.filter((o) => cheb(o, e) === 1);
+    if (near.length) {
+      const t = near.reduce((a, b) => (a.hp <= b.hp ? a : b));
+      const dir: Dir = [sign(t.x - e.x), sign(t.y - e.y)];
+      if (this.rng.chance(0.25)) {
+        this.strike(e, t, this.enemyKick(e), {
+          dir,
+          verb: "kick",
+          sound: "kick",
+          knock: this.rng.chance(0.4) ? 1 : 0,
+        });
+        return 115;
+      }
+      const verb = rumbleCrew(this).find((c) => c.id === e.crew)?.verb ?? "punch";
+      this.strike(e, t, this.enemyPunch(e) * 1.1, { dir, verb, sound: "punch" });
+      return 95;
+    }
+    const { w, h } = this.area;
+    if (foes.length) {
+      if (!this.foeMap) this.foeMap = distanceMap(w, h, this.walk, foes, 120);
+      this.stepDown(e, this.foeMap);
+      return 100;
+    }
+    // Nobody left to hit: drift back toward you.
+    if (cheb(e, p) > 4) this.stepDown(e, distanceMap(w, h, this.walk, [p], 30));
+    return 100;
+  }
+
+  /** Knock-outs in quick succession: Double KO, Triple KO, Rampage. Only yours count. */
+  private koStreak(): void {
+    if (!this.credit) return;
+    const p = this.s.player;
+    const last = p.streak;
+    const n = last && this.s.turn - last.turn <= STREAK_TURNS ? last.n + 1 : 1;
+    p.streak = { n, turn: this.s.turn };
+    if (n < 2) return;
+    const label = n === 2 ? "DOUBLE KO!" : n === 3 ? "TRIPLE KO!" : "RAMPAGE!";
+    p.guts = Math.min(this.maxGuts(), p.guts + n);
+    this.pop(p.x, p.y - 1, label, C.yellow);
+    this.log(`${label} (+${n} guts)`, C.yellow);
+    if (n >= 3) this.events.push({ type: "impact", power: 2 });
+    this.s.tally.bestStreak = Math.max(this.s.tally.bestStreak ?? 0, n);
+  }
+
+  // -------------------------------------------------------------------------------------------
   // Side quests
 
   /** Quests in progress and the step each is on (only steps still to do). */
@@ -3762,7 +4233,7 @@ export class Game {
     const a = this.area;
     const t = this.s.turf?.[a.id];
     if (e.event !== "raid" || !t || t.raid === null) return;
-    if (a.enemies.some((o) => o.event === "raid")) return;
+    if (this.everyone().some((o) => o.event === "raid")) return;
     t.raid = null;
     this.s.tally.raids = (this.s.tally.raids ?? 0) + 1;
     const cash = Math.round((25 + 15 * a.depth) * this.rng.range(0.9, 1.1));
@@ -3777,7 +4248,7 @@ export class Game {
   /** People rescued from a shakedown pay you back. */
   private eventProgress(e: Enemy): void {
     const a = this.area;
-    if (e.event !== "shakedown" || a.enemies.some((o) => o.event === "shakedown")) return;
+    if (e.event !== "shakedown" || this.everyone().some((o) => o.event === "shakedown")) return;
     const npc = a.items.find((i) => i.kind === "npc");
     if (npc?.kind !== "npc") return;
     a.items.splice(a.items.indexOf(npc), 1);
@@ -3956,7 +4427,7 @@ export class Game {
 
   private checkBout(): void {
     const b = this.s.bout;
-    if (!b || this.s.over || this.area.kind !== "arena" || this.area.enemies.length > 0) return;
+    if (!b || this.s.over || this.area.kind !== "arena" || this.everyone().length > 0) return;
     const bout = CLUBS[b.club].bouts[b.tier];
     b.wave++;
     if (b.wave < bout.waves.length) {
@@ -4045,9 +4516,15 @@ export class Game {
 }
 
 /** "punch" -> "punches", "kick" -> "kicks". */
+/** "punch" -> "punches", "swing the pipe at" -> "swings the pipe at". */
 function thirdPerson(verb: string): string {
-  if (verb.endsWith("s")) return verb;
-  return /(ch|sh|x)$/.test(verb) ? `${verb}es` : `${verb}s`;
+  const [first, ...rest] = verb.split(" ");
+  const done = /(ch|sh|x|ss)$/.test(first)
+    ? `${first}es`
+    : first.endsWith("s")
+      ? first
+      : `${first}s`;
+  return [done, ...rest].join(" ");
 }
 
 /** Explored squares as run lengths ("12,5,30" = 12 unseen, 5 seen, 30 unseen...). */

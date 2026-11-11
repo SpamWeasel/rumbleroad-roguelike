@@ -138,6 +138,7 @@ export class App {
     if (g.s.over) return g.s.over === "won" ? "town" : null;
     const a = g.area;
     if (a.kind === "arena") return "arena";
+    if (g.rumbleOn()) return "boss";
     if (a.enemies.some((e) => (e.boss || e.event === "rival") && e.awake)) return "boss";
     return a.kind === "town" || a.id === "lighthouse" ? "town" : "street";
   }

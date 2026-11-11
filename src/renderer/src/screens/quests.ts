@@ -1,7 +1,8 @@
 import { C } from "../../../game/colors";
 import { BOSSES } from "../../../game/data/enemies";
 import { ITEMS } from "../../../game/data/items";
-import { BOSS_SCENES, QUEST_BY_ID, QUESTS } from "../../../game/data/quests";
+import { BOSS_SCENES, INTRO_SCENE, QUEST_BY_ID, QUESTS } from "../../../game/data/quests";
+import { RUMBLE_INTRO } from "../../../game/data/rumble";
 import type { Game } from "../../../game/game";
 import { AREAS } from "../../../game/world";
 import type { App, Screen } from "../app";
@@ -110,7 +111,7 @@ export class TalkScreen implements Screen {
   }
 }
 
-/** A boss's scene the first time they spot you. */
+/** A short scene: a boss the first time they spot you, or the opening of a new game ("intro"). */
 export class SceneScreen implements Screen {
   private shown = 1;
 
@@ -119,8 +120,25 @@ export class SceneScreen implements Screen {
     private boss: string,
   ) {}
 
+  private scene(): { title: string; color: string; lines: typeof INTRO_SCENE; end: string } {
+    if (this.boss === "intro")
+      return {
+        title: "Rumble Row",
+        color: C.pink,
+        lines: INTRO_SCENE,
+        end: "Enter: hit the streets",
+      };
+    const b = BOSSES[this.boss];
+    return {
+      title: `${b.name}, ${b.title}`,
+      color: b.color,
+      lines: BOSS_SCENES[this.boss] ?? [],
+      end: "Enter: FIGHT!",
+    };
+  }
+
   key(e: KeyboardEvent): void {
-    const lines = BOSS_SCENES[this.boss] ?? [];
+    const lines = this.scene().lines;
     if (isBack(e) || this.shown >= lines.length) {
       if (isBack(e) || isConfirm(e) || e.code === "Space") this.app.pop();
       return;
@@ -129,26 +147,65 @@ export class SceneScreen implements Screen {
   }
 
   draw(t: Term): void {
-    const b = BOSSES[this.boss];
-    const lines = BOSS_SCENES[this.boss] ?? [];
+    const sc = this.scene();
     const { x, w } = BOX;
-    const y = 8;
-    const h = 18;
-    t.box(x, y, w, h, b.color, `${b.name}, ${b.title}`, b.color);
+    // Tall enough for every line, so the last one never runs into the footer.
+    const wrapped = sc.lines.map((l) => Term.wrap(l.line, w - 8));
+    const h = wrapped.reduce((n, l) => n + l.length + 2, 0) + 5;
+    const y = Math.max(1, Math.floor((36 - h) / 2));
+    t.box(x, y, w, h, sc.color, sc.title, sc.color);
     let yy = y + 2;
-    for (const line of lines.slice(0, this.shown)) {
+    sc.lines.slice(0, this.shown).forEach((line, i) => {
       const you = line.speaker === "You";
-      t.text(x + 3, yy, `${line.speaker}:`, you ? C.cyan : b.color);
-      for (const l of Term.wrap(line.line, w - 8)) t.text(x + 5, ++yy, l, you ? C.white : C.light);
-      yy += 2;
-    }
-    const more = this.shown < lines.length;
+      t.text(x + 3, yy++, `${line.speaker}:`, you ? C.cyan : sc.color);
+      for (const l of wrapped[i]) t.text(x + 5, yy++, l, you ? C.white : C.light);
+      yy++;
+    });
+    const more = this.shown < sc.lines.length;
+    t.text(x + 3, y + h - 2, more ? "Enter: go on   Esc: skip" : sc.end, more ? C.gray : C.yellow);
+  }
+}
+
+/** The roll call before the Rumble: Baron Voss on his megaphone, and everyone who came. */
+export class RumbleScreen implements Screen {
+  constructor(private app: App) {}
+
+  key(e: KeyboardEvent): void {
+    if (isBack(e) || isConfirm(e) || e.code === "Space") this.app.pop();
+  }
+
+  draw(t: Term): void {
+    const g = this.app.game as Game;
+    const crew = g.rumbleRollCall();
+    const x = 6;
+    const w = 98;
+    const intro = RUMBLE_INTRO.flatMap((l) => Term.wrap(l, w - 8));
+    const h = intro.length + crew.length + 10;
+    const y = Math.max(1, Math.floor((36 - h) / 2));
+    t.box(x, y, w, h, C.red, "THE RUMBLE", C.red);
+    let yy = y + 2;
+    for (const l of intro) t.text(x + 4, yy++, l, C.light);
+    yy++;
     t.text(
-      x + 3,
-      y + h - 2,
-      more ? "Enter: go on   Esc: skip" : "Enter: FIGHT!",
-      more ? C.gray : C.yellow,
+      x + 4,
+      yy++,
+      `${crew.length} ${crew.length === 1 ? "friend stands" : "friends stand"} with you:`,
+      C.yellow,
     );
+    for (const c of crew) {
+      t.text(x + 5, yy, "☻", c.color);
+      const nx = t.text(x + 7, yy, c.name, c.color, undefined, x + 44);
+      t.text(nx, yy, `, ${c.title}`, C.gray, undefined, x + 44);
+      t.text(x + 45, yy++, `"${c.line}"`, C.light, undefined, x + w - 2);
+    }
+    yy++;
+    t.text(
+      x + 4,
+      yy,
+      'Baron Voss lowers the megaphone. "So be it. Crowns! Clear the plaza!"',
+      C.red,
+    );
+    t.text(x + 4, y + h - 2, "Enter: RUMBLE!", C.yellow);
   }
 }
 

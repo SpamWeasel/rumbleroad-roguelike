@@ -13,6 +13,12 @@ import { TECHNIQUES } from "../src/game/data/techniques";
 let botTakesJobs = true;
 let botHires = true;
 let botTurf = false;
+/** A cheap repeatable coin flip for the bot (it must not touch the game's own dice). */
+let liftSeed = 1;
+const rngLift = () => {
+  liftSeed = (liftSeed * 1103515245 + 12345) >>> 0;
+  return liftSeed % 3 === 0;
+};
 
 import { Game } from "../src/game/game";
 import { canStep, distanceMap } from "../src/game/grid";
@@ -202,6 +208,18 @@ export function playGame(
         return;
       }
       g.guard();
+      return;
+    }
+    // Throw whoever you are holding at the nearest gang member (or just away).
+    if (p.carry) {
+      const t = g.visibleEnemies()[0];
+      const dir: Dir = t ? ([Math.sign(t.x - p.x), Math.sign(t.y - p.y)] as Dir) : p.facing;
+      if (!g.throwHeld(dir[0] || dir[1] ? dir : [1, 0])) g.grab();
+      return;
+    }
+    // Lift a floored foe now and then when others are around to hit with them.
+    if (!p.held && adj.length >= 2 && g.liftable() && rngLift()) {
+      g.grab();
       return;
     }
     if (adj.length) {

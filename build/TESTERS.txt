@@ -1,8 +1,30 @@
-RUMBLE ROW 0.9 - EARLY TEST BUILD (please read me)
+RUMBLE ROW 0.10 - EARLY TEST BUILD (please read me)
 ==================================================
 
 Thanks for testing Rumble Row! It's an ASCII street-brawling roguelike. The gangs have taken
 over the city: eat well, train hard, and fight your way east to Duke Varga in Crown Tower.
+
+
+NEW IN 0.10 - "THE RUMBLE"
+--------------------------
+- The Rumble: a new area, Crown Plaza, stands between the Steelworks and Crown Tower. The first
+  time you walk in, the Crowns' street army pours out in three waves, and the last is led by a
+  new boss, Baron Voss. Beat him to open the tower doors. Get knocked out and the waves you've
+  already beaten stay beaten.
+- Everyone you helped shows up to fight beside you: your partner, everyone whose side quest you
+  finished (Rosa with her rolling pin, Big Mike swinging a ham...), your rival Dex if you've
+  beaten him five times, fight-club champs you dethroned, a volunteer from every block you hold,
+  and a couple of Maple Street regulars. A roll call shows who came. A bigger crew draws out a
+  few more Crowns, but it's worth it.
+- Pick people up: when a gang member is knocked down or dazed next to you, press G to lift them
+  over your head, then T to throw them - into their friends, into a wall, or into the water.
+  They wriggle free after a few turns, and taking a hit makes you drop them. Bosses are too
+  heavy.
+- KO streaks: knock out gang members back to back for DOUBLE KO, TRIPLE KO and RAMPAGE, each
+  worth a burst of guts.
+- A short opening scene when you start a new game.
+- Six new achievements, including winning the Rumble with 8 friends at your side.
+- Your 0.9 save carries over. If you're already inside the tower, the plaza is already yours.
 
 
 NEW IN 0.9 - "RAIN OR SHINE"
@@ -169,7 +191,7 @@ Press ? in the game for every control (keys can be changed in Settings). The bas
   J / K ................. punch / kick (or just walk into a gang member)
   1 - 9 ................. special moves you've learned at a gym
   Space ................. guard
-  G / T ................. pick up / throw crates, trash cans, pipes...
+  G / T ................. pick up / throw crates, trash cans, pipes - and knocked-down foes
   I ..................... pockets (snacks, bandages, firecrackers)
   R ..................... rest      O ..... your jobs      P ... character sheet
   N ..................... city map      U ..... side quests   F ... Street Guide
